@@ -210,6 +210,61 @@ const calcTarget = (tdee, goalId) => {
   return goal ? tdee + goal.adj : tdee;
 };
 
+/* ─── UTILITY FUNCTIONS ─────────────────────────────────────────────────── */
+
+/** Calcula la edad exacta a partir de la fecha de nacimiento (ISO string o YYYY-MM-DD) */
+const calcEdad = (birthdate) => {
+  if (!birthdate) return null;
+  const hoy = new Date();
+  const nac = new Date(birthdate);
+  if (isNaN(nac.getTime())) return null;
+  let edad = hoy.getFullYear() - nac.getFullYear();
+  const m = hoy.getMonth() - nac.getMonth();
+  if (m < 0 || (m === 0 && hoy.getDate() < nac.getDate())) edad--;
+  return edad >= 0 ? edad : null;
+};
+
+/**
+ * Parsea un texto libre de entrevista en un array de preguntas.
+ * Detecta saltos de línea, signos "?" y puntos como separadores.
+ */
+const parseInterview = (text) => {
+  if (!text || !text.trim()) return [];
+  // 1. Split por salto de línea
+  const rawLines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const questions = [];
+  rawLines.forEach(line => {
+    // 2. Dentro de cada línea, split por "?" o "." seguidos de espacio/fin
+    const parts = line.split(/(?<=[?.])\s+|(?<=[?])/);
+    parts.forEach(part => {
+      // Limpia numeración tipo "1.", "a)", "-", "•"
+      const q = part.replace(/^[\s\d]+[.)]\s*|^[-•*]\s*/, '').trim();
+      if (q.length > 4) questions.push(q);
+    });
+  });
+  return questions;
+};
+
+/** Genera un avatar SVG inline (data URL) según género */
+const getDefaultAvatar = (genero) => {
+  const isMale = genero === 'M';
+  const bg = isMale ? '#3a7ab5' : '#7c5cbf';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+    <circle cx="40" cy="40" r="40" fill="${bg}"/>
+    <circle cx="40" cy="30" r="14" fill="rgba(255,255,255,0.9)"/>
+    <ellipse cx="40" cy="70" rx="22" ry="18" fill="rgba(255,255,255,0.9)"/>
+  </svg>`;
+  return 'data:image/svg+xml;base64,' + btoa(svg);
+};
+
+/** Formatea fecha ISO/YYYY-MM-DD a DD/MM/AAAA */
+const fmtFecha = (iso) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' });
+};
+
 /* ─── DEFAULT INTERVIEW QUESTIONS ──────────────────────────────────────── */
 const DEFAULT_QUESTIONS = [
   { id:"q1", text:"¿Tiene alguna alergia o intolerancia alimentaria?", type:"textarea" },
@@ -263,6 +318,25 @@ const PatientStyles = () => (
     .assign-btn{display:flex;align-items:center;gap:8px;padding:10px 14px;border:1.5px solid var(--cream-dk);border-radius:var(--rs);background:#fff;cursor:pointer;transition:all .16s;font-size:12px;font-weight:500;width:100%;text-align:left}
     .assign-btn:hover{border-color:var(--info);background:rgba(58,122,181,.04)}
     .assign-btn.active{border-color:var(--info);background:rgba(58,122,181,.08);font-weight:700;color:var(--info)}
+    /* ── NEW v4.1 ── */
+    .badge-revisado{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.04em}
+    .badge-revisado.ok{background:rgba(92,122,92,.15);color:var(--sage-dk)}
+    .badge-revisado.pending{background:rgba(196,124,59,.15);color:#8a5a1a}
+    .linechart-svg{overflow:visible}
+    .lc-line{fill:none;stroke:var(--info);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+    .lc-area{fill:url(#lc-grad);opacity:.18}
+    .lc-dot{fill:#fff;stroke:var(--info);stroke-width:2}
+    .lc-label{font-size:9px;fill:var(--mid);text-anchor:middle}
+    .lc-val{font-size:9px;fill:var(--char);font-weight:700;text-anchor:middle}
+    .collapsible-hd{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:10px 14px;background:var(--cream);border-radius:var(--rs);margin-bottom:4px;transition:background .14s}
+    .collapsible-hd:hover{background:var(--cream-dk)}
+    .collapsible-hd h4{font-size:13px;color:var(--char);margin:0}
+    .collapsible-body{padding:0 2px;overflow:hidden}
+    .antro-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+    .antro-card{background:var(--cream);border-radius:var(--rs);padding:10px 12px;text-align:center}
+    .antro-card .av{font-size:16px;font-weight:700;color:var(--sage-dk);font-family:'Playfair Display',serif}
+    .antro-card .al{font-size:10px;color:var(--mid);text-transform:uppercase;letter-spacing:.07em;margin-top:2px}
+    .date-chip{display:inline-block;background:rgba(58,122,181,.1);color:var(--info);border-radius:20px;padding:2px 9px;font-size:10px;font-weight:600}
   `}</style>
 );
 
@@ -272,6 +346,8 @@ function InterviewBuilder({ questions, onSave, onClose }) {
   const [newText, setNewText] = useState("");
   const [newType, setNewType] = useState("textarea");
   const [newOpts, setNewOpts] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  const [showPaste, setShowPaste] = useState(false);
 
   const addQ = () => {
     if (!newText.trim()) return;
@@ -286,6 +362,21 @@ function InterviewBuilder({ questions, onSave, onClose }) {
     [arr[i],arr[j]]=[arr[j],arr[i]]; setQs(arr);
   };
 
+  const importFromPaste = () => {
+    const parsed = parseInterview(pasteText);
+    if (!parsed.length) return;
+    const newQs = parsed.map(text => ({
+      id: "q" + Date.now() + Math.random(),
+      text,
+      type: "textarea",
+      options: [],
+      fecha_realizacion: new Date().toISOString(),
+    }));
+    setQs(prev => [...prev, ...newQs]);
+    setPasteText("");
+    setShowPaste(false);
+  };
+
   return (
     <div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="mo">
@@ -294,6 +385,30 @@ function InterviewBuilder({ questions, onSave, onClose }) {
           Personaliza las preguntas que aparecerán al registrar un nuevo paciente.
         </p>
 
+        <div style={{marginBottom:14,display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button className="btn btn-g btn-sm" onClick={()=>setShowPaste(v=>!v)}>
+            {showPaste?"✕ Cancelar importación":"📋 Importar desde texto"}
+          </button>
+        </div>
+        {showPaste && (
+          <div style={{background:"rgba(58,122,181,.06)",border:"1.5px solid var(--info)",borderRadius:"var(--rs)",padding:16,marginBottom:16}}>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--info)",marginBottom:8}}>📋 Pegar texto de entrevista</div>
+            <p style={{fontSize:11,color:"var(--mid)",marginBottom:10,lineHeight:1.6}}>
+              Pega el texto con las preguntas. Se detectarán automáticamente separadas por saltos de línea, signos <b>?</b> o puntos <b>.</b>.
+            </p>
+            <textarea className="fta" style={{minHeight:100}} value={pasteText}
+              onChange={e=>setPasteText(e.target.value)}
+              placeholder={"¿Tienes alguna alergia?\n¿Cuántas comidas haces al día?\n¿Practicas ejercicio? ¿Cuántas veces por semana."}/>
+            {pasteText.trim() && (
+              <div style={{fontSize:11,color:"var(--sage-dk)",margin:"6px 0"}}>
+                ✓ Se detectan <b>{parseInterview(pasteText).length}</b> pregunta(s)
+              </div>
+            )}
+            <button className="btn btn-i btn-sm" style={{marginTop:6}} disabled={!pasteText.trim()} onClick={importFromPaste}>
+              ➕ Añadir preguntas detectadas
+            </button>
+          </div>
+        )}
         <div style={{marginBottom:20}}>
           {qs.map((q,i) => (
             <div key={q.id} className="q-builder-row">
@@ -346,10 +461,20 @@ function InterviewBuilder({ questions, onSave, onClose }) {
 
 /* ─── PATIENT FORM ──────────────────────────────────────────────────────── */
 function PatientForm({ patient, questions, onSave, onClose }) {
-  const blank = { id:null,name:"",email:"",phone:"",sex:"F",birthdate:"",
-    weight:"",height:"",age:"",activityLevel:"moderate",goal:"maintain",
-    notes:"",photo:"",answers:{},history:[] };
-  const [form, setForm] = useState(() => patient ? {...blank,...patient} : blank);
+  const blank = {
+    id:null, name:"", email:"", phone:"", sex:"F", genero:"F",
+    birthdate:"", weight:"", height:"", age:"",
+    activityLevel:"moderate", goal:"maintain",
+    notes:"", photo:"", contrato:"",
+    revisado: false,
+    answers:{}, history:[],
+    mediciones_corporales:[],   // [{fecha,masa_magra,grasa_visceral,porcentaje_grasa,porcentaje_agua}]
+    interview_records:[],       // [{id,fecha_realizacion,answers}]
+  };
+  const [form, setForm] = useState(() => patient ? {
+    ...blank, ...patient,
+    genero: patient.genero || patient.sex || 'F',
+  } : blank);
   const sf = (k,v) => setForm(f=>({...f,[k]:v}));
   const setAnswer = (qid,v) => setForm(f=>({...f,answers:{...f.answers,[qid]:v}}));
   const photoRef = useRef();
@@ -361,8 +486,16 @@ function PatientForm({ patient, questions, onSave, onClose }) {
 
   const save = () => {
     if (!form.name.trim()) return;
-    onSave({ ...form, id: form.id || Date.now(),
-      bmr, tdee, targetKcal: target, updatedAt: new Date().toISOString() });
+    const edadCalc = calcEdad(form.birthdate);
+    const photoFinal = form.photo || getDefaultAvatar(form.genero || form.sex);
+    onSave({
+      ...form,
+      id: form.id || Date.now(),
+      age: edadCalc !== null ? edadCalc : Number(form.age) || '',
+      photo: photoFinal,
+      bmr, tdee, targetKcal: target,
+      updatedAt: new Date().toISOString(),
+    });
   };
 
   return (
@@ -387,17 +520,38 @@ function PatientForm({ patient, questions, onSave, onClose }) {
                   <option value="F">Mujer</option><option value="M">Hombre</option>
                 </select>
               </div>
-              <div className="fg"><label className="fl">Fecha de nacimiento</label>
-                <input className="fi" type="date" value={form.birthdate} onChange={e=>{sf("birthdate",e.target.value);if(e.target.value){const y=new Date().getFullYear()-new Date(e.target.value).getFullYear();sf("age",y);}}}/>
+              <div className="fg"><label className="fl">Género (avatar)</label>
+                <select className="fs" value={form.genero||form.sex} onChange={e=>sf("genero",e.target.value)}>
+                  <option value="F">Femenino</option><option value="M">Masculino</option>
+                </select>
               </div>
+            </div>
+            <div className="fg"><label className="fl">Fecha de nacimiento</label>
+              <input className="fi" type="date" value={form.birthdate} onChange={e=>{
+                sf("birthdate",e.target.value);
+                if(e.target.value){const ed=calcEdad(e.target.value);if(ed!==null)sf("age",ed);}
+              }}/>
+              {form.birthdate && calcEdad(form.birthdate)!==null && (
+                <div style={{fontSize:11,color:"var(--sage-dk)",marginTop:3,fontWeight:600}}>
+                  🎂 {calcEdad(form.birthdate)} años
+                </div>
+              )}
+            </div>
+            <div className="fg"><label className="fl">Plan contratado</label>
+              <input className="fi" value={form.contrato||""} onChange={e=>sf("contrato",e.target.value)} placeholder="Básico · Premium · Intensivo..."/>
             </div>
           </div>
           {/* Photo upload */}
           <div className="fg">
             <label className="fl">Foto del paciente (opcional)</label>
             <div className={"img-upload-box"+(form.photo?" has-img":"")} onClick={()=>photoRef.current.click()}>
-              {form.photo?<><img src={form.photo} alt=""/><div className="overlay" style={{color:"#fff",flexDirection:"column",gap:4,fontSize:12,fontWeight:600}}><span style={{fontSize:20}}>📷</span>Cambiar</div></>
-              :<div style={{padding:"20px 0",color:"var(--mid)"}}><div style={{fontSize:28,marginBottom:6}}>👤</div><div style={{fontWeight:600,fontSize:12}}>Foto del paciente</div><div style={{fontSize:10}}>Opcional</div></div>}
+              {form.photo
+                ?<><img src={form.photo} alt=""/><div className="overlay" style={{color:"#fff",flexDirection:"column",gap:4,fontSize:12,fontWeight:600}}><span style={{fontSize:20}}>📷</span>Cambiar</div></>
+                :<div style={{padding:"20px 0",color:"var(--mid)"}}>
+                   <img src={getDefaultAvatar(form.genero||form.sex)} alt="" style={{width:52,height:52,borderRadius:"50%",marginBottom:6,display:"block",margin:"0 auto 8px"}}/>
+                   <div style={{fontWeight:600,fontSize:12}}>Foto del paciente</div>
+                   <div style={{fontSize:10}}>Opcional · Se usará avatar por género</div>
+                 </div>}
             </div>
             <input ref={photoRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>sf("photo",ev.target.result);r.readAsDataURL(f);}}/>
           </div>
@@ -527,8 +681,157 @@ function CheckInModal({ patient, onSave, onClose }) {
   );
 }
 
+/* ─── WEIGHT LINE CHART (SVG nativo) ────────────────────────────────────── */
+function WeightLineChart({ data }) {
+  if (!data || data.length < 2) return null;
+  const W = 520, H = 130, PX = 40, PY = 20;
+  const vals = data.map(d => d.w);
+  const minV = Math.min(...vals);
+  const maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+  const xStep = (W - PX * 2) / (data.length - 1);
+
+  const pt = (i) => ({
+    x: PX + i * xStep,
+    y: PY + (1 - (vals[i] - minV) / range) * (H - PY * 2),
+  });
+
+  const points = data.map((_, i) => pt(i));
+  const linePath = points.map((p, i) => (i === 0 ? `M${p.x},${p.y}` : `L${p.x},${p.y}`)).join(' ');
+  const areaPath = linePath + ` L${points[points.length-1].x},${H - PY} L${points[0].x},${H - PY} Z`;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="linechart-svg" style={{width:"100%",height:H}}>
+      <defs>
+        <linearGradient id="lc-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--info)" stopOpacity="0.35"/>
+          <stop offset="100%" stopColor="var(--info)" stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      {/* Grid lines */}
+      {[0,0.25,0.5,0.75,1].map((t,i)=>{
+        const y = PY + (1-t)*(H-PY*2);
+        const val = (minV + t*range).toFixed(1);
+        return (
+          <g key={i}>
+            <line x1={PX} y1={y} x2={W-PX} y2={y} stroke="var(--cream-dk)" strokeWidth="1"/>
+            <text x={PX-4} y={y+3} fontSize="8" fill="var(--mid)" textAnchor="end">{val}</text>
+          </g>
+        );
+      })}
+      {/* Area + Line */}
+      <path d={areaPath} className="lc-area"/>
+      <path d={linePath} className="lc-line"/>
+      {/* Dots + labels */}
+      {points.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r={4} className="lc-dot"/>
+          <text x={p.x} y={p.y - 10} className="lc-val">{vals[i]}</text>
+          <text x={p.x} y={H - PY + 13} className="lc-label">{data[i].date.slice(5)}</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/* ─── ANTHROPOMETRIC SECTION (collapsible) ──────────────────────────────── */
+function AntroSection({ patient, onUpdate }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    fecha: new Date().toISOString().split('T')[0],
+    masa_magra: '', grasa_visceral: '', porcentaje_grasa: '', porcentaje_agua: '',
+  });
+  const mediciones = patient.mediciones_corporales || [];
+  const last = mediciones[mediciones.length - 1];
+
+  const save = () => {
+    if (!form.fecha) return;
+    const entry = { ...form, id: Date.now() };
+    onUpdate({ ...patient, mediciones_corporales: [...mediciones, entry] });
+    setForm({ fecha: new Date().toISOString().split('T')[0], masa_magra:'', grasa_visceral:'', porcentaje_grasa:'', porcentaje_agua:'' });
+  };
+
+  return (
+    <div style={{marginBottom:20}}>
+      <div className="collapsible-hd" onClick={()=>setOpen(o=>!o)}>
+        <h4>🧬 Composición corporal {last && <span className="date-chip" style={{marginLeft:8}}>Último: {fmtFecha(last.fecha)}</span>}</h4>
+        <span style={{fontSize:12,color:"var(--mid)"}}>{open?"▲":"▼"}</span>
+      </div>
+      {open && (
+        <div className="collapsible-body" style={{padding:"14px 2px"}}>
+          {last && (
+            <div className="antro-grid" style={{marginBottom:16}}>
+              {[["masa_magra","Masa Magra","kg"],["grasa_visceral","Gr. Visceral","nivel"],
+                ["porcentaje_grasa","% Grasa","%"],["porcentaje_agua","% Agua","%"]].map(([k,lbl,u])=>(
+                last[k] ? (
+                  <div className="antro-card" key={k}>
+                    <div className="av">{last[k]}<span style={{fontSize:11}}> {u}</span></div>
+                    <div className="al">{lbl}</div>
+                  </div>
+                ) : null
+              ))}
+            </div>
+          )}
+          {/* Historical table */}
+          {mediciones.length > 0 && (
+            <div style={{overflowX:"auto",marginBottom:16}}>
+              <table className="it">
+                <thead><tr>
+                  <th>Fecha</th><th>Masa Magra (kg)</th><th>Gr. Visceral</th><th>% Grasa</th><th>% Agua</th>
+                </tr></thead>
+                <tbody>
+                  {[...mediciones].reverse().map(m=>(
+                    <tr key={m.id}>
+                      <td>{fmtFecha(m.fecha)}</td>
+                      <td>{m.masa_magra||'—'}</td>
+                      <td>{m.grasa_visceral||'—'}</td>
+                      <td>{m.porcentaje_grasa||'—'}</td>
+                      <td>{m.porcentaje_agua||'—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {/* Add new entry */}
+          <div style={{background:"var(--cream)",borderRadius:"var(--rs)",padding:14}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:"var(--char)"}}>➕ Nueva medición</div>
+            <div className="f3" style={{gap:10}}>
+              <div className="fg" style={{marginBottom:0}}>
+                <label className="fl">Fecha</label>
+                <input className="fi" type="date" value={form.fecha} onChange={e=>setForm(f=>({...f,fecha:e.target.value}))}/>
+              </div>
+              <div className="fg" style={{marginBottom:0}}>
+                <label className="fl">Masa Magra (kg)</label>
+                <input className="fi" type="number" step="0.1" placeholder="52.4" value={form.masa_magra} onChange={e=>setForm(f=>({...f,masa_magra:e.target.value}))}/>
+              </div>
+              <div className="fg" style={{marginBottom:0}}>
+                <label className="fl">Grasa Visceral</label>
+                <input className="fi" type="number" step="1" placeholder="8" value={form.grasa_visceral} onChange={e=>setForm(f=>({...f,grasa_visceral:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="f2" style={{gap:10,marginTop:10}}>
+              <div className="fg" style={{marginBottom:0}}>
+                <label className="fl">% Grasa corporal</label>
+                <input className="fi" type="number" step="0.1" placeholder="24.5" value={form.porcentaje_grasa} onChange={e=>setForm(f=>({...f,porcentaje_grasa:e.target.value}))}/>
+              </div>
+              <div className="fg" style={{marginBottom:0}}>
+                <label className="fl">% Agua corporal</label>
+                <input className="fi" type="number" step="0.1" placeholder="55.2" value={form.porcentaje_agua} onChange={e=>setForm(f=>({...f,porcentaje_agua:e.target.value}))}/>
+              </div>
+            </div>
+            <button className="btn btn-p btn-sm" style={{marginTop:12}} disabled={!form.fecha} onClick={save}>
+              ✓ Guardar medición
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── PATIENT DETAIL ────────────────────────────────────────────────────── */
-function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, onEdit, onDelete, onAddCheckin, onAssignTemplate }) {
+function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, onEdit, onDelete, onAddCheckin, onAssignTemplate, onUpdate }) {
   const [tab, setTab] = useState("overview");
   const [checkInOpen, setCheckInOpen] = useState(false);
 
@@ -542,28 +845,47 @@ function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, on
   const lastEntry = history.slice(-1)[0];
   const assignedTpl = weekTemplates.find(t=>t.id===patient.assignedTemplateId);
 
+  const edadMostrar = calcEdad(patient.birthdate) ?? patient.age;
+
   // Weight progress for chart
-  const chartData = history.slice(-8).map(h=>({ date:h.date, w:h.weight }));
+  const chartData = history.slice(-10).map(h=>({ date:h.date, w:h.weight }));
   const maxW = Math.max(...chartData.map(d=>d.w), patient.weight||0) + 2;
   const minW = Math.min(...chartData.map(d=>d.w), patient.weight||0) - 2;
   const range = maxW - minW || 1;
+
+  // Toggle revisado
+  const toggleRevisado = () => onUpdate && onUpdate({ ...patient, revisado: !patient.revisado });
 
   return (
     <div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="mo" style={{maxWidth:900}}>
         {/* Header */}
         <div style={{display:"flex",gap:16,alignItems:"flex-start",marginBottom:20}}>
-          {patient.photo
-            ? <img src={patient.photo} style={{width:70,height:70,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>
+          {patient.photo || patient.genero
+            ? <img src={patient.photo || getDefaultAvatar(patient.genero||patient.sex)} style={{width:70,height:70,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>
             : <div style={{width:70,height:70,borderRadius:"50%",background:"linear-gradient(135deg,#2a4a7a,#3a7ab5)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:26,color:"#fff"}}>👤</div>}
           <div style={{flex:1}}>
-            <h3 style={{fontSize:22,marginBottom:3}}>{patient.name}</h3>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:4}}>
+              <h3 style={{fontSize:22,margin:0}}>{patient.name}</h3>
+              {/* Revisado badge */}
+              <span
+                className={"badge-revisado "+(patient.revisado?"ok":"pending")}
+                style={{cursor:"pointer"}}
+                title={patient.revisado?"Marcar como pendiente":"Marcar como revisado"}
+                onClick={toggleRevisado}
+              >
+                {patient.revisado?"✓ Revisado":"⏳ Pendiente"}
+              </span>
+            </div>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:12,color:"var(--mid)"}}>
-              {patient.age && <span>🎂 {patient.age} años</span>}
+              {patient.birthdate && <span>🎂 {fmtFecha(patient.birthdate)}{edadMostrar?" ("+edadMostrar+" años)":""}</span>}
+              {!patient.birthdate && patient.age && <span>🎂 {patient.age} años</span>}
               {patient.weight && <span>⚖️ {patient.weight} kg</span>}
               {patient.height && <span>📏 {patient.height} cm</span>}
+              {patient.phone && <span>📱 {patient.phone}</span>}
               {actObj && <span>🏃 {actObj.label}</span>}
               {patient.email && <span>✉️ {patient.email}</span>}
+              {patient.contrato && <span style={{background:"rgba(124,92,191,.12)",color:"var(--purple)",padding:"1px 8px",borderRadius:20,fontWeight:600}}>📄 {patient.contrato}</span>}
             </div>
             {target>0 && <div style={{marginTop:6,display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:24,fontWeight:700,fontFamily:"Playfair Display,serif",color:goalObj?.color||"var(--sage-dk)"}}>{target}</span>
@@ -603,18 +925,15 @@ function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, on
           </div>
 
           {/* Weight chart */}
-          {chartData.length > 1 && <div>
-            <h4 className="st" style={{fontSize:13}}>Evolución del peso (últimas {chartData.length} sesiones)</h4>
-            <div className="prog-chart" style={{marginBottom:24}}>
-              {chartData.map((d,i)=>{
-                const pct=Math.round(((d.w-minW)/range)*70);
-                return(<div key={i} className="prog-bar" style={{background:"var(--info)",opacity:.7+i*.04,height:(pct+10)+"px",position:"relative"}}>
-                  <span className="prog-bar-val">{d.w}</span>
-                  <span className="prog-bar-label">{d.date.slice(5)}</span>
-                </div>);
-              })}
+          {chartData.length > 1 && <div style={{marginBottom:20}}>
+            <h4 className="st" style={{fontSize:13}}>📈 Evolución del peso</h4>
+            <div style={{background:"var(--cream)",borderRadius:"var(--rs)",padding:"14px 10px 22px"}}>
+              <WeightLineChart data={chartData}/>
             </div>
           </div>}
+
+          {/* Anthropometric section */}
+          <AntroSection patient={patient} onUpdate={onUpdate}/>
 
           {patient.notes && <div style={{background:"var(--cream)",borderRadius:8,padding:14}}><b style={{fontSize:12}}>📋 Notas:</b><p style={{fontSize:12,color:"var(--mid)",marginTop:4,lineHeight:1.6}}>{patient.notes}</p></div>}
         </div>}
@@ -641,12 +960,19 @@ function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, on
 
         {/* INTERVIEW TAB */}
         {tab==="interview" && <div>
-          <h4 className="st" style={{fontSize:13}}>Respuestas del cuestionario inicial</h4>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <h4 className="st" style={{fontSize:13,marginBottom:0}}>Respuestas del cuestionario inicial</h4>
+            {patient.updatedAt && (
+              <span className="date-chip">📅 Última actualización: {fmtFecha(patient.updatedAt)}</span>
+            )}
+          </div>
           {questions.length===0 && <p style={{fontSize:13,color:"var(--mid)"}}>No hay preguntas configuradas.</p>}
           {questions.map(q=>(
             <div key={q.id} style={{marginBottom:14,paddingBottom:14,borderBottom:"1px solid var(--cream-dk)"}}>
               <div style={{fontSize:12,fontWeight:700,color:"var(--sage-dk)",marginBottom:4}}>{q.text}</div>
-              <div style={{fontSize:13,color:patient.answers?.[q.id]?"var(--char)":"var(--mid)"}}>{patient.answers?.[q.id]||"Sin respuesta"}</div>
+              <div style={{fontSize:13,color:patient.answers?.[q.id]?"var(--char)":"var(--mid)"}}>
+                {patient.answers?.[q.id]||<span style={{fontStyle:"italic"}}>Sin respuesta</span>}
+              </div>
             </div>
           ))}
         </div>}
@@ -656,25 +982,47 @@ function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, on
           <h4 className="st" style={{fontSize:13}}>Plan semanal asignado</h4>
           {assignedTpl
             ? <div style={{background:"var(--cream)",borderRadius:8,padding:14,marginBottom:16}}>
-                <div style={{fontWeight:700,fontSize:14,color:"var(--info)",marginBottom:4}}>{assignedTpl.name}</div>
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
+                  <div style={{fontWeight:700,fontSize:14,color:"var(--info)"}}>{assignedTpl.name}</div>
+                  {assignedTpl.es_plantilla && <span className="badge bg" style={{fontSize:10}}>📋 Plantilla</span>}
+                </div>
                 {assignedTpl.description && <div style={{fontSize:12,color:"var(--mid)",marginBottom:10}}>{assignedTpl.description}</div>}
+                {/* Dates row */}
+                <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:11,marginBottom:12}}>
+                  {patient.fecha_asignacion && <span>📅 <b>Asignada:</b> {fmtFecha(patient.fecha_asignacion)}</span>}
+                  {patient.fecha_lista_compra && <span>🛒 <b>Lista compra:</b> {fmtFecha(patient.fecha_lista_compra)}</span>}
+                  {assignedTpl.createdAt && <span style={{color:"var(--mid)"}}>🗓 Plantilla creada: {fmtFecha(assignedTpl.createdAt)}</span>}
+                </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
                   {DAYS.map(d=><div key={d} style={{background:"#fff",borderRadius:6,padding:"6px 4px",fontSize:9,textAlign:"center"}}>
                     <div style={{fontWeight:700,color:"var(--sage-dk)",marginBottom:3}}>{d.slice(0,3)}</div>
                     {MEALS.map(m=>(assignedTpl.week[d]?.[m]||[]).length>0&&<div key={m} style={{fontSize:8,color:"var(--mid)"}}>{(assignedTpl.week[d]?.[m]||[]).map(id=>recipes.find(r=>r.id===id)?.name||'').join(', ')}</div>)}
                   </div>)}
                 </div>
-                <button className="btn btn-g btn-sm" style={{marginTop:10}} onClick={()=>onAssignTemplate(patient.id,null)}>✕ Quitar plan asignado</button>
+                <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
+                  <button className="btn btn-p btn-sm" onClick={()=>{
+                    const now = new Date().toISOString();
+                    onUpdate && onUpdate({...patient, fecha_lista_compra: now});
+                  }}>🛒 Marcar entrega lista compra</button>
+                  <button className="btn btn-g btn-sm" onClick={()=>onAssignTemplate(patient.id,null)}>✕ Quitar plan asignado</button>
+                </div>
               </div>
             : <p style={{fontSize:13,color:"var(--mid)",marginBottom:14}}>Sin plan asignado. Selecciona una plantilla:</p>}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
             {weekTemplates.map(tpl=>(
-              <div key={tpl.id} className={"plan-tpl-card"+(patient.assignedTemplateId===tpl.id?" selected":"")} onClick={()=>onAssignTemplate(patient.id,tpl.id)}>
+              <div key={tpl.id} className={"plan-tpl-card"+(patient.assignedTemplateId===tpl.id?" selected":"")}
+                onClick={()=>{
+                  onAssignTemplate(patient.id, tpl.id);
+                  // set fecha_asignacion when assigning
+                  onUpdate && onUpdate({...patient, assignedTemplateId:tpl.id, fecha_asignacion:new Date().toISOString()});
+                }}>
                 <div style={{fontWeight:700,fontSize:13,color:"var(--info)",marginBottom:3}}>{tpl.name}</div>
+                {tpl.es_plantilla && <span className="badge bg" style={{fontSize:9,marginBottom:4,display:"inline-block"}}>📋 Plantilla</span>}
                 {tpl.description && <div style={{fontSize:11,color:"var(--mid)"}}>{tpl.description}</div>}
                 <div style={{fontSize:10,color:"var(--sage-dk)",marginTop:6}}>
                   {Object.values(tpl.week||{}).reduce((a,day)=>a+Object.values(day||{}).reduce((b,m)=>b+(m||[]).length,0),0)} recetas asignadas
                 </div>
+                {tpl.createdAt && <div style={{fontSize:9,color:"var(--mid)",marginTop:3}}>Creada: {fmtFecha(tpl.createdAt)}</div>}
               </div>
             ))}
             {weekTemplates.length===0 && <p style={{fontSize:12,color:"var(--mid)"}}>Crea plantillas semanales en el Planificador → "Guardar como plantilla".</p>}
@@ -694,11 +1042,20 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
   const [builderOpen, setBuilderOpen] = useState(false);
   const [localQuestions, setLocalQuestions] = useState(questions);
   const [q, setQ] = useState("");
+  const [filterRevisado, setFilterRevisado] = useState("all"); // "all"|"revisado"|"pendiente"
 
   // Keep local questions in sync
   useEffect(()=>setLocalQuestions(questions),[questions]);
 
-  const filtered = patients.filter(p => !q || p.name.toLowerCase().includes(q.toLowerCase()));
+  const filtered = patients.filter(p => {
+    if (q && !p.name.toLowerCase().includes(q.toLowerCase())) return false;
+    if (filterRevisado === "revisado" && !p.revisado) return false;
+    if (filterRevisado === "pendiente" && p.revisado) return false;
+    return true;
+  });
+
+  const nRevisados = patients.filter(p=>p.revisado).length;
+  const nPendientes = patients.filter(p=>!p.revisado).length;
 
   return (
     <div>
@@ -713,6 +1070,9 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
 
       <div className="filter-bar">
         <input className="fi" style={{maxWidth:260}} placeholder="🔍 Buscar paciente..." value={q} onChange={e=>setQ(e.target.value)}/>
+        <span className={"filter-chip"+(filterRevisado==="all"?" on":"")} onClick={()=>setFilterRevisado("all")}>Todos ({patients.length})</span>
+        <span className={"filter-chip"+(filterRevisado==="revisado"?" on":"")} onClick={()=>setFilterRevisado("revisado")} style={filterRevisado==="revisado"?{background:"var(--sage-dk)",color:"#fff",borderColor:"var(--sage-dk)"}:{}}>✓ Revisados ({nRevisados})</span>
+        <span className={"filter-chip"+(filterRevisado==="pendiente"?" on":"")} onClick={()=>setFilterRevisado("pendiente")} style={filterRevisado==="pendiente"?{background:"var(--terra)",color:"#fff",borderColor:"var(--terra)"}:{}}>⏳ Pendientes ({nPendientes})</span>
       </div>
 
       {filtered.length===0
@@ -730,12 +1090,24 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
                 <div className="pt-card" key={p.id} onClick={()=>setDetail(p)}>
                   <div className="pt-head">
                     <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                      {p.photo
-                        ? <img src={p.photo} style={{width:44,height:44,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>
-                        : <div style={{width:44,height:44,borderRadius:"50%",background:"rgba(255,255,255,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>👤</div>}
-                      <div>
-                        <h3>{p.name}</h3>
-                        <div className="pt-sub">{[p.age&&p.age+"a",p.sex==="M"?"Hombre":"Mujer",p.weight&&p.weight+"kg"].filter(Boolean).join(" · ")}</div>
+                      <img
+                        src={p.photo || getDefaultAvatar(p.genero||p.sex)}
+                        style={{width:44,height:44,borderRadius:"50%",objectFit:"cover",flexShrink:0}}
+                      />
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <h3 style={{margin:0}}>{p.name}</h3>
+                          <span className={"badge-revisado "+(p.revisado?"ok":"pending")} style={{fontSize:9}}>
+                            {p.revisado?"✓":"⏳"}
+                          </span>
+                        </div>
+                        <div className="pt-sub">
+                          {[
+                            (calcEdad(p.birthdate)??p.age) && ((calcEdad(p.birthdate)??p.age)+"a"),
+                            p.sex==="M"?"Hombre":"Mujer",
+                            p.weight && p.weight+"kg"
+                          ].filter(Boolean).join(" · ")}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -744,10 +1116,17 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
                       <span className="kcal-big" style={{color:goalObj2?.color||"var(--sage-dk)",fontSize:24}}>{target2}</span>
                       <div><span className="kcal-label">kcal/día</span><br/><span style={{fontSize:10,color:goalObj2?.color||"var(--mid)",fontWeight:600}}>{goalObj2?.label}</span></div>
                     </div>}
+                    {p.birthdate && <div className="pt-stat">🎂 <b>{fmtFecha(p.birthdate)}</b>{(calcEdad(p.birthdate))!==null && <span style={{color:"var(--mid)",marginLeft:4}}>({calcEdad(p.birthdate)} años)</span>}</div>}
+                    {p.phone && <div className="pt-stat">📱 <b>{p.phone}</b></div>}
+                    {p.contrato && <div className="pt-stat">📄 <b style={{color:"var(--purple)"}}>{p.contrato}</b></div>}
                     {lastH && <div className="pt-stat">⚖️ Último registro: <b>{lastH.weight} kg</b>
                       {diff && <span className={"hist-delta "+(Number(diff)<0?"delta-down":Number(diff)>0?"delta-up":"delta-same")} style={{marginLeft:4}}>{Number(diff)>0?"+":""}{diff} kg</span>}
                     </div>}
-                    <div className="pt-stat">📋 {p.history?.length||0} registros · {weekTemplates.find(t=>t.id===p.assignedTemplateId)?<span style={{color:"var(--info)"}}>Plan: {weekTemplates.find(t=>t.id===p.assignedTemplateId).name}</span>:"Sin plan asignado"}</div>
+                    <div className="pt-stat" style={{fontSize:11}}>
+                      📋 {p.history?.length||0} registros · {weekTemplates.find(t=>t.id===p.assignedTemplateId)
+                        ? <span style={{color:"var(--info)"}}>Plan: {weekTemplates.find(t=>t.id===p.assignedTemplateId).name}</span>
+                        : "Sin plan asignado"}
+                    </div>
                   </div>
                 </div>
               );
@@ -765,7 +1144,8 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
         onEdit={p=>{setDetail(null);setEdit(p);}}
         onDelete={id=>{onDelete(id);setDetail(null);showToast("Paciente eliminado");}}
         onAddCheckin={onAddCheckin}
-        onAssignTemplate={onAssignTemplate}/>}
+        onAssignTemplate={onAssignTemplate}
+        onUpdate={p=>{onUpdate(p);showToast("Paciente actualizado ✓");}}/>}
 
       {builderOpen && <InterviewBuilder questions={localQuestions}
         onSave={qs=>{setLocalQuestions(qs);/* propagate up via showToast */showToast("Cuestionario guardado ✓");}}
@@ -780,6 +1160,7 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
 function SaveTemplateModal({ week, recipes, onSave, onClose }) {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
+  const [esPlantilla, setEsPlantilla] = useState(false);
   const usedCount = Object.values(week).reduce((a,d)=>a+Object.values(d).reduce((b,m)=>b+(m||[]).length,0),0);
   return (
     <div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}>
@@ -788,9 +1169,26 @@ function SaveTemplateModal({ week, recipes, onSave, onClose }) {
         <p style={{fontSize:12,color:"var(--mid)",marginBottom:16}}>{usedCount} recetas asignadas en el planificador actual.</p>
         <div className="fg"><label className="fl">Nombre de la plantilla *</label><input className="fi" autoFocus value={name} onChange={e=>setName(e.target.value)} placeholder="Plan Mediterráneo semana 1"/></div>
         <div className="fg"><label className="fl">Descripción (opcional)</label><textarea className="fta" value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Plan de 1800 kcal, alta proteína..."/></div>
+        <div className="fg">
+          <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",fontSize:13}}>
+            <input type="checkbox" checked={esPlantilla} onChange={e=>setEsPlantilla(e.target.checked)} style={{width:16,height:16,accentColor:"var(--sage-dk)"}}/>
+            <div>
+              <b>Marcar como plantilla reutilizable</b>
+              <div style={{fontSize:11,color:"var(--mid)",marginTop:1}}>Se mostrará como plantilla base al asignar planes a pacientes</div>
+            </div>
+          </label>
+        </div>
         <div className="f g8" style={{justifyContent:"flex-end"}}>
           <button className="btn btn-g" onClick={onClose}>Cancelar</button>
-          <button className="btn btn-p" disabled={!name.trim()} onClick={()=>{onSave({id:Date.now(),name,description:desc,week:JSON.parse(JSON.stringify(week)),createdAt:new Date().toISOString()});onClose();}}>💾 Guardar plantilla</button>
+          <button className="btn btn-p" disabled={!name.trim()} onClick={()=>{
+            onSave({
+              id: Date.now(), name, description: desc,
+              week: JSON.parse(JSON.stringify(week)),
+              es_plantilla: esPlantilla,
+              createdAt: new Date().toISOString(),
+            });
+            onClose();
+          }}>💾 Guardar{esPlantilla?" plantilla":" semana"}</button>
         </div>
       </div>
     </div>
