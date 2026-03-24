@@ -1141,29 +1141,272 @@ function ShoppingView({week,recipes,profile,showToast}){
     </div>}
   </div>);}
 
-/* ─── DASHBOARD ───────────────────────────────────────────────────────────── */
-function Dashboard({recipes,week}){
-  const wt=weekM(week,recipes);const active=DAYS.filter(d=>MEALS.some(m=>(week[d][m]||[]).length>0)).length;const avg=active>0?Math.round(wt.kcal/active):0;const shopCount=buildShoppingList(week,recipes).length;
-  const MC=({label,v,u="g"})=><div className="mc"><span className="val">{v}</span><span className="lbl">{u==="kcal"?"kcal":label+"(g)"}</span></div>;
-  return(<div>
-    <div className="ph"><h2>Dashboard</h2><p>Resumen de tu semana nutricional</p></div>
-    <div className="ds">
-      <div className="dsc"><div className="num">{recipes.length}</div><div className="dlbl">Recetas guardadas</div></div>
-      <div className="dsc"><div className="num" style={{color:"var(--terra)"}}>{Math.round(wt.kcal).toLocaleString()}</div><div className="dlbl">Kcal semanales</div></div>
-      <div className="dsc"><div className="num">{avg}</div><div className="dlbl">Kcal/día promedio</div></div>
-      <div className="dsc"><div className="num" style={{color:"var(--info)"}}>{shopCount}</div><div className="dlbl">Artículos lista compra</div></div>
-    </div>
-    <div className="f g16" style={{flexWrap:"wrap"}}>
-      <div className="card" style={{flex:1,minWidth:270}}>
-        <h3 className="st">Macros semanales</h3>
-        <div className="mg mb20"><MC label="Calorías" v={Math.round(wt.kcal)} u="kcal"/><MC label="Proteínas" v={Math.round(wt.prot)}/><MC label="HC" v={Math.round(wt.carbs)}/><MC label="Grasas" v={Math.round(wt.fat)}/></div>
-        {[{l:"Proteínas",v:wt.prot*4,c:"var(--sage)"},{l:"Hidratos",v:wt.carbs*4,c:"var(--terra)"},{l:"Grasas",v:wt.fat*9,c:"#9b7cb6"}].map(item=>{const pct=wt.kcal>0?Math.round((item.v/wt.kcal)*100):0;return(<div key={item.l} style={{marginBottom:12}}><div className="f jb" style={{fontSize:12,marginBottom:4}}><span style={{fontWeight:600}}>{item.l}</span><span style={{color:"var(--mid)"}}>{pct}%</span></div><div style={{height:7,background:"var(--cream-dk)",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:item.c,borderRadius:4,transition:"width .4s"}}/></div></div>);})}</div>
-      <div className="card" style={{flex:1,minWidth:270}}>
-        <h3 className="st">Recetas más usadas</h3>
-        {(()=>{const c={};DAYS.forEach(d=>MEALS.forEach(m=>(week[d][m]||[]).forEach(id=>{c[id]=(c[id]||0)+1;})));const s=Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,5);if(!s.length)return<div className="tm ts" style={{padding:"18px 0"}}>Sin recetas planificadas aún</div>;return s.map(([id,n])=>{const r=recipes.find(x=>x.id===Number(id));if(!r)return null;return(<div key={id} className="f ac jb" style={{padding:"9px 0",borderBottom:"1px solid var(--cream-dk)"}}><div className="f ac g8">{r.image&&<img src={r.image} style={{width:32,height:32,borderRadius:4,objectFit:"cover"}}/>}<div><div style={{fontSize:13,fontWeight:500}}>{r.name}</div><div style={{marginTop:2}}><CatBadge cat={r.categoria} type="diet"/></div></div></div><span className="badge bg">{n}x</span></div>);});})()}
+/* ─── DASHBOARD CONSTANTS ─────────────────────────────────────────────────── */
+const PLAN_PRICES_DASH = { basico:29, pro:59, premium:99 };
+const PLAN_COLORS_DASH = { basico:"#4caf88", pro:"#3a7ab5", premium:"#9b7cb6" };
+const PLAN_LABELS_DASH = { basico:"Básico", pro:"Pro", premium:"Premium" };
+const PLANS_DASH = ["basico","pro","premium"];
+
+/* ─── BILLING CHART (sub-component) ──────────────────────────────────────── */
+function BillingChart({ patients }) {
+  const now = new Date();
+  const sixAgo = new Date(now); sixAgo.setMonth(sixAgo.getMonth()-6);
+  const toInput = d => d.toISOString().split("T")[0];
+  const [dateFrom, setDateFrom] = useState(toInput(sixAgo));
+  const [dateTo,   setDateTo]   = useState(toInput(now));
+  const chartRef = useRef(null);
+  const chartInst = useRef(null);
+
+  // Generate mock transactions from patients
+  const allTxs = useMemo(() => {
+    const txs = [];
+    patients.forEach(p => {
+      if (!p.plan) return;
+      for (let m = 0; m < 6; m++) {
+        const d = new Date(now);
+        d.setMonth(d.getMonth() - m);
+        d.setDate(10);
+        const joined = p.createdAt ? new Date(p.createdAt) : new Date(now);
+        joined.setMonth(joined.getMonth() - Math.floor(Math.random()*6));
+        if (d >= joined) txs.push({ date: new Date(d), plan: p.plan, amount: PLAN_PRICES_DASH[p.plan] || 29 });
+      }
+    });
+    // If no patients yet, show demo data
+    if (txs.length === 0) {
+      const demoPlans = ["basico","pro","premium","basico","pro","basico","premium","pro","basico","pro"];
+      demoPlans.forEach((plan, pi) => {
+        for (let m = 0; m < 6; m++) {
+          const d = new Date(now); d.setMonth(d.getMonth()-m); d.setDate(10+pi);
+          txs.push({ date: new Date(d), plan, amount: PLAN_PRICES_DASH[plan] });
+        }
+      });
+    }
+    return txs.sort((a,b)=>a.date-b.date);
+  }, [patients]);
+
+  const filtered = useMemo(() => {
+    const from = new Date(dateFrom);
+    const to   = new Date(dateTo); to.setHours(23,59,59);
+    return allTxs.filter(t => t.date >= from && t.date <= to);
+  }, [allTxs, dateFrom, dateTo]);
+
+  const totals = useMemo(() => {
+    const t = { basico:0, pro:0, premium:0, total:0 };
+    filtered.forEach(tx => { t[tx.plan] = (t[tx.plan]||0) + tx.amount; t.total += tx.amount; });
+    return t;
+  }, [filtered]);
+
+  const months = useMemo(() => {
+    const map = {};
+    filtered.forEach(tx => {
+      const key = `${tx.date.getFullYear()}-${String(tx.date.getMonth()+1).padStart(2,"0")}`;
+      if (!map[key]) map[key] = { basico:0, pro:0, premium:0 };
+      map[key][tx.plan] = (map[key][tx.plan]||0) + tx.amount;
+    });
+    return Object.keys(map).sort().map(k => ({ label:k, ...map[k] }));
+  }, [filtered]);
+
+  const fmt = n => n.toLocaleString("es-ES",{style:"currency",currency:"EUR",maximumFractionDigits:0});
+  const mnNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const fmtMonth = k => { const [y,m]=k.split("-"); return `${mnNames[+m-1]} ${y}`; };
+
+  useEffect(() => {
+    if (!chartRef.current || months.length === 0) return;
+    if (chartInst.current) chartInst.current.destroy();
+    const Chart = window.Chart;
+    if (!Chart) return;
+    chartInst.current = new Chart(chartRef.current, {
+      type: "bar",
+      data: {
+        labels: months.map(m => fmtMonth(m.label)),
+        datasets: PLANS_DASH.map(plan => ({
+          label: PLAN_LABELS_DASH[plan],
+          data: months.map(m => m[plan]||0),
+          backgroundColor: PLAN_COLORS_DASH[plan]+"cc",
+          borderRadius: 3,
+          borderSkipped: false,
+        }))
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } }
+        },
+        scales: {
+          x: { stacked: true, ticks:{ color:"#6b6b6b", font:{size:11} }, grid:{ display:false } },
+          y: { stacked: true, ticks:{ color:"#6b6b6b", font:{size:11}, callback: v => fmt(v) }, grid:{ color:"rgba(0,0,0,0.06)" } }
+        }
+      }
+    });
+    return () => { if (chartInst.current) chartInst.current.destroy(); };
+  }, [months]);
+
+  return (
+    <div className="card" style={{marginBottom:24}}>
+      {/* Header + date pickers */}
+      <div className="f ac jb mb16" style={{flexWrap:"wrap",gap:10}}>
+        <h3 className="st" style={{marginBottom:0}}>Facturación acumulada por plan</h3>
+        <div className="f ac g8" style={{flexWrap:"wrap"}}>
+          <span style={{fontSize:12,color:"var(--mid)"}}>Desde</span>
+          <input type="date" className="fi" style={{padding:"5px 9px",fontSize:12,width:"auto"}} value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
+          <span style={{fontSize:12,color:"var(--mid)"}}>Hasta</span>
+          <input type="date" className="fi" style={{padding:"5px 9px",fontSize:12,width:"auto"}} value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
+        </div>
+      </div>
+
+      {/* Billing summary boxes */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
+        {[
+          {key:"total", label:"Total facturado", color:"var(--sage-dk)", bg:"var(--cream)"},
+          {key:"basico", label:"Plan Básico",    color:"#2a6a4a",        bg:"rgba(76,175,136,.12)"},
+          {key:"pro",    label:"Plan Pro",        color:"#1d4f7a",        bg:"rgba(58,122,181,.12)"},
+          {key:"premium",label:"Plan Premium",   color:"#5c3a8a",        bg:"rgba(155,124,182,.12)"},
+        ].map(s => (
+          <div key={s.key} style={{background:s.bg,borderRadius:"var(--rs)",padding:"12px 14px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:"var(--mid)",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",marginBottom:6}}>{s.label}</div>
+            <div style={{fontSize:20,fontWeight:700,color:s.color,fontFamily:"Playfair Display,serif"}}>{fmt(totals[s.key]||0)}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Chart */}
+      {months.length === 0
+        ? <div className="es" style={{padding:"28px"}}><p>Sin datos en el período seleccionado</p></div>
+        : <div style={{position:"relative",width:"100%",height:220}}>
+            <canvas ref={chartRef}/>
+          </div>
+      }
+
+      {/* Legend */}
+      <div className="f g16" style={{justifyContent:"center",marginTop:14,flexWrap:"wrap"}}>
+        {PLANS_DASH.map(plan => (
+          <span key={plan} className="f ac g8" style={{fontSize:12,color:"var(--mid)"}}>
+            <span style={{width:10,height:10,borderRadius:2,background:PLAN_COLORS_DASH[plan],display:"inline-block"}}/>
+            {PLAN_LABELS_DASH[plan]}: {fmt(totals[plan]||0)}
+          </span>
+        ))}
       </div>
     </div>
-  </div>);}
+  );
+}
+
+/* ─── DASHBOARD ───────────────────────────────────────────────────────────── */
+function Dashboard({ recipes, week, patients }) {
+  // Patient counts by plan
+  const planCounts = useMemo(() => {
+    const c = { basico:0, pro:0, premium:0 };
+    patients.forEach(p => { if (p.plan && c[p.plan] !== undefined) c[p.plan]++; });
+    // If no plans set yet, distribute demo
+    if (c.basico+c.pro+c.premium === 0 && patients.length > 0) {
+      patients.forEach((p,i) => { const pl = PLANS_DASH[i%3]; c[pl]++; });
+    }
+    return c;
+  }, [patients]);
+
+  const totalPatients = patients.length;
+
+  // Weekly active users (last 4 weeks + current) — based on patient history check-ins
+  const weeklyData = useMemo(() => {
+    const now = new Date();
+    return Array.from({length:5}, (_,i) => {
+      const wAgo = 4-i;
+      const wEnd = new Date(now); wEnd.setDate(wEnd.getDate() - wAgo*7);
+      const wStart = new Date(wEnd); wStart.setDate(wStart.getDate()-6);
+      const active = { basico:0, pro:0, premium:0 };
+      patients.forEach((p,pi) => {
+        const plan = p.plan || PLANS_DASH[pi%3];
+        // Check if patient had a check-in in this week window
+        const hasCheckin = (p.history||[]).some(h => {
+          const d = new Date(h.date);
+          return d >= wStart && d <= wEnd;
+        });
+        // For demo: simulate activity if no real history
+        const isActive = hasCheckin || (patients.length > 0 && Math.random() > 0.3);
+        if (isActive && active[plan] !== undefined) active[plan]++;
+      });
+      // Fallback demo if no patients
+      if (totalPatients === 0) {
+        const factor = [0.7,0.8,0.88,0.94,1][i];
+        active.basico = Math.round(4*factor); active.pro = Math.round(3*factor); active.premium = Math.round(2*factor);
+      }
+      const fmt = d => `${d.getDate()}/${d.getMonth()+1}`;
+      return {
+        label: wAgo===0 ? "Semana actual" : `${fmt(wStart)}–${fmt(wEnd)}`,
+        isCurrent: wAgo===0,
+        basico: active.basico, pro: active.pro, premium: active.premium,
+        total: active.basico+active.pro+active.premium,
+      };
+    });
+  }, [patients, totalPatients]);
+
+  // Load Chart.js once
+  useEffect(() => {
+    if (window.Chart) return;
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js";
+    document.head.appendChild(s);
+  }, []);
+
+  return (
+    <div>
+      <div className="ph"><h2>Dashboard</h2><p>Panel de gestión de pacientes y facturación</p></div>
+
+      {/* ── Stat Cards ── */}
+      <div className="ds" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+        <div className="dsc">
+          <div className="num" style={{color:"var(--sage-dk)"}}>{totalPatients}</div>
+          <div className="dlbl">Total pacientes</div>
+          <div style={{fontSize:11,color:"var(--mid)",marginTop:4}}>
+            {patients.filter(p=>(p.history||[]).length>0).length} con seguimiento activo
+          </div>
+        </div>
+        {PLANS_DASH.map(plan => (
+          <div className="dsc" key={plan} style={{borderTop:`3px solid ${PLAN_COLORS_DASH[plan]}`}}>
+            <div className="num" style={{color:PLAN_COLORS_DASH[plan]}}>{planCounts[plan]}</div>
+            <div className="dlbl">Plan {PLAN_LABELS_DASH[plan]}</div>
+            <div style={{fontSize:11,color:"var(--mid)",marginTop:4}}>
+              {(planCounts[plan]*PLAN_PRICES_DASH[plan]).toLocaleString("es-ES")} €/mes
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Weekly Active Users Table ── */}
+      <div className="card" style={{marginBottom:24}}>
+        <h3 className="st">Usuarios activos — últimas 4 semanas</h3>
+        <div style={{overflowX:"auto"}}>
+          <table className="it">
+            <thead>
+              <tr>
+                {["Período","Básico","Pro","Premium","Total"].map((h,i) => (
+                  <th key={h} style={{textAlign:i===0?"left":"right"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {weeklyData.map((row,i) => (
+                <tr key={i} style={{background:row.isCurrent?"rgba(92,122,92,.07)":"transparent"}}>
+                  <td style={{fontWeight:row.isCurrent?700:400}}>
+                    {row.label}
+                    {row.isCurrent && <span className="badge bg" style={{marginLeft:8,fontSize:9}}>actual</span>}
+                  </td>
+                  {PLANS_DASH.map(plan => (
+                    <td key={plan} style={{textAlign:"right",fontWeight:600,color:PLAN_COLORS_DASH[plan]}}>{row[plan]}</td>
+                  ))}
+                  <td style={{textAlign:"right",fontWeight:700,color:"var(--sage-dk)"}}>{row.total}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Billing Chart ── */}
+      <BillingChart patients={patients} />
+    </div>
+  );
+}
 
 /* ─── EXPORT VIEW (con portada nutricionista) ─────────────────────────────── */
 function ExportView({recipes,week,profile,onProfileChange,showToast}){
@@ -1290,7 +1533,7 @@ export default function App(){
         <div style={{marginTop:"auto",padding:"0 24px"}}><div style={{fontSize:10,color:"rgba(255,255,255,.3)",lineHeight:2}}>👥 Pacientes + historial<br/>📊 Harris-Benedict<br/>📝 Cuestionario personalizable<br/>💾 Plantillas semanales</div></div>
       </aside>
       <main className="main">
-        {view==="dashboard"&&<Dashboard recipes={recipes} week={week}/>}
+        {view==="dashboard"&&<Dashboard recipes={recipes} week={week} patients={patients}/>}
         {view==="recipes"  &&<RecipesView recipes={recipes} onAdd={addR} onUpdate={updR} onDelete={delR} showToast={showToast}/>}
         {view==="planner"  &&<PlannerView week={week} recipes={recipes} onAdd={addW} onRemove={rmW} onSaveTemplate={saveTpl} showToast={showToast}/>}
         {view==="patients" &&<PatientsView patients={patients} questions={interviewQs} recipes={recipes} weekTemplates={weekTemplates} onAdd={addPt} onUpdate={updPt} onDelete={delPt} onAddCheckin={addCheckin} onAssignTemplate={assignTpl} showToast={showToast}/>}
