@@ -180,7 +180,7 @@ const searchLocal=q=>{if(!q||q.length<2)return[];const w=q.toLowerCase().split(/
 
 /* ─── CATEGORIES ──────────────────────────────────────────────────────────── */
 const DIETS=["Omnivora","Vegetariana","Vegana","Keto","Mediterranea","Sin gluten","Alta proteina"];
-const ORIGINS=["Espanola","Italiana","Asiatica","Americana","Mediterranea","Mexicana","Internacional"];
+const ORIGINS=["Española","Italiana","Asiática","Americana","Mediterranea","Mexicana","Internacional"];
 const DIFFS=["Facil","Media","Dificil"];
 const DIFF_CLS={"Facil":"cat-diff-easy","Media":"cat-diff","Dificil":"cat-diff-hard"};
 const CatBadge=({cat,type})=>{if(!cat)return null;const cls=type==="diet"?"cat-diet":type==="origin"?"cat-origin":(DIFF_CLS[cat]||"cat-diff");return<span className={`cat-badge ${cls}`}>{cat}</span>;};
