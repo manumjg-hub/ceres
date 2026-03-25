@@ -280,6 +280,166 @@ const DEFAULT_QUESTIONS = [
   { id:"q8", text:"¿Ha seguido alguna dieta anteriormente? ¿Con qué resultado?", type:"textarea" },
 ];
 
+/* ─── DEFAULT SUBSCRIPTIONS ─────────────────────────────────────────────── */
+const DEFAULT_SUBS = [
+  { id:"sub_basico",  nombre:"Básico",   precio:29,  color:"#4caf88", descripcion:"Seguimiento mensual, plan semanal + lista de compra.", icono:"🌱" },
+  { id:"sub_pro",     nombre:"Pro",      precio:59,  color:"#3a7ab5", descripcion:"Seguimiento quincenal, composición corporal y ajuste de macros.", icono:"⭐" },
+  { id:"sub_premium", nombre:"Premium",  precio:99,  color:"#9b7cb6", descripcion:"Seguimiento semanal ilimitado, recetas personalizadas y soporte prioritario.", icono:"👑" },
+];
+
+/* ─── SUBSCRIPTIONS VIEW ─────────────────────────────────────────────────── */
+function SubscriptionsView({ subscriptions, onAdd, onUpdate, onDelete, showToast }) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [editSub, setEditSub] = useState(null);
+
+  const blank = { id:null, nombre:"", precio:"", color:"#5c7a5c", descripcion:"", icono:"📋", logo:"" };
+  const [form, setForm] = useState(blank);
+  const sf = (k,v) => setForm(f=>({...f,[k]:v}));
+  const logoRef = useRef();
+
+  const openNew = () => { setForm(blank); setEditSub(null); setFormOpen(true); };
+  const openEdit = s => { setForm({...s}); setEditSub(s); setFormOpen(true); };
+  const closeForm = () => { setFormOpen(false); setEditSub(null); };
+
+  const save = () => {
+    if (!form.nombre.trim() || !form.precio) return showToast("Nombre y precio requeridos", "error");
+    const sub = { ...form, id: form.id || ("sub_"+Date.now()), precio: Number(form.precio) };
+    editSub ? onUpdate(sub) : onAdd(sub);
+    showToast(editSub ? "Suscripción actualizada ✓" : "Suscripción creada ✓");
+    closeForm();
+  };
+
+  const nPatients = () => 0; // placeholder — wired from App
+
+  const EMOJI_OPTIONS = ["🌱","⭐","👑","💎","🔥","🚀","🏆","🎯","⚡","🌟","💪","🍃"];
+
+  return (
+    <div>
+      <div className="ph f ac jb">
+        <div><h2>Suscripciones</h2><p>{subscriptions.length} planes activos</p></div>
+        <button className="btn btn-i" onClick={openNew}>+ Nueva suscripción</button>
+      </div>
+
+      {subscriptions.length === 0
+        ? <div className="es"><div className="ei">💳</div><p>Sin planes de suscripción. Crea el primero.</p></div>
+        : <div className="sub-grid">
+            {subscriptions.map(s => (
+              <div className="sub-card" key={s.id}>
+                <div className="sub-head">
+                  <div className="sub-logo" style={{background: s.color+"22", border:`2px solid ${s.color}44`}}>
+                    {s.logo
+                      ? <img src={s.logo} alt=""/>
+                      : <span>{s.icono||"📋"}</span>}
+                  </div>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:16,color:"var(--char)"}}>{s.nombre}</div>
+                    <div style={{fontSize:10,color:"var(--mid)",textTransform:"uppercase",letterSpacing:".06em"}}>Plan activo</div>
+                  </div>
+                  <div style={{marginLeft:"auto",textAlign:"right"}}>
+                    <div className="sub-price" style={{color:s.color}}>{s.precio}€</div>
+                    <div className="sub-period">/mes</div>
+                  </div>
+                </div>
+                <div className="sub-body">
+                  {s.descripcion && <div className="sub-desc">{s.descripcion}</div>}
+                  <div style={{marginTop:8,display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:10,height:10,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+                    <span style={{fontSize:11,color:"var(--mid)"}}>Color identificativo del plan</span>
+                  </div>
+                </div>
+                <div className="sub-actions">
+                  <button className="btn btn-o btn-xs" style={{borderColor:s.color,color:s.color}} onClick={()=>openEdit(s)}>✏️ Editar</button>
+                  <button className="btn btn-xs" style={{background:"var(--danger)",color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer"}}
+                    onClick={()=>{ if(window.confirm(`¿Eliminar plan "${s.nombre}"?`)) { onDelete(s.id); showToast("Plan eliminado"); } }}>🗑</button>
+                </div>
+              </div>
+            ))}
+          </div>}
+
+      {/* ── Form modal ── */}
+      {formOpen && (
+        <div className="mb" onClick={e=>e.target===e.currentTarget&&closeForm()}>
+          <div className="mo" style={{maxWidth:500}}>
+            <div className="mo-hd">
+              <h3>{editSub?"✏️ Editar suscripción":"💳 Nueva suscripción"}</h3>
+              <button className="mo-x" onClick={closeForm}>✕</button>
+            </div>
+
+            <div className="f2">
+              <div className="fg"><label className="fl">Nombre del plan *</label>
+                <input className="fi" value={form.nombre} onChange={e=>sf("nombre",e.target.value)} placeholder="Premium"/>
+              </div>
+              <div className="fg"><label className="fl">Precio mensual (€) *</label>
+                <input className="fi" type="number" min="0" step="0.01" value={form.precio} onChange={e=>sf("precio",e.target.value)} placeholder="99"/>
+              </div>
+            </div>
+
+            <div className="fg"><label className="fl">Descripción</label>
+              <textarea className="fta" style={{minHeight:70}} value={form.descripcion} onChange={e=>sf("descripcion",e.target.value)} placeholder="Seguimiento semanal, recetas personalizadas..."/>
+            </div>
+
+            <div className="f2">
+              <div className="fg">
+                <label className="fl">Emoji / icono</label>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:4}}>
+                  {EMOJI_OPTIONS.map(em=>(
+                    <button key={em} onClick={()=>sf("icono",em)}
+                      style={{width:34,height:34,border:`2px solid ${form.icono===em?"var(--sage-dk)":"var(--cream-dk)"}`,borderRadius:8,background:form.icono===em?"var(--cream)":"#fff",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {em}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="fg">
+                <label className="fl">Color del plan</label>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
+                  <input type="color" value={form.color} onChange={e=>sf("color",e.target.value)}
+                    style={{width:44,height:44,border:"none",background:"none",cursor:"pointer",padding:0,borderRadius:8}}/>
+                  <span style={{fontSize:12,color:"var(--mid)"}}>Se usa en tarjetas y badges</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Logo upload */}
+            <div className="fg">
+              <label className="fl">Logo del plan (opcional)</label>
+              <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                {form.logo
+                  ? <img src={form.logo} style={{width:52,height:52,borderRadius:10,objectFit:"contain",border:"1px solid var(--cream-dk)"}}/>
+                  : <div style={{width:52,height:52,borderRadius:10,background:form.color+"22",border:`2px dashed ${form.color}66`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{form.icono||"📋"}</div>}
+                <div>
+                  <button className="btn btn-o btn-sm" onClick={()=>logoRef.current.click()}>📷 Subir logo</button>
+                  {form.logo && <button className="btn btn-g btn-xs" style={{marginLeft:6}} onClick={()=>sf("logo","")}>✕</button>}
+                </div>
+                <input ref={logoRef} type="file" accept="image/*" style={{display:"none"}}
+                  onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>sf("logo",ev.target.result);r.readAsDataURL(f);}}/>
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div style={{background:"var(--cream)",borderRadius:10,padding:14,marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:42,height:42,borderRadius:9,background:form.color+"22",border:`2px solid ${form.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,overflow:"hidden"}}>
+                {form.logo?<img src={form.logo} style={{width:"100%",height:"100%",objectFit:"contain"}}/>:form.icono||"📋"}
+              </div>
+              <div>
+                <div style={{fontWeight:700,fontSize:14,color:form.color||"var(--char)"}}>{form.nombre||"Nombre del plan"}</div>
+                <div style={{fontSize:13,color:"var(--mid)"}}>{form.precio?form.precio+"€/mes":"Precio"}</div>
+              </div>
+            </div>
+
+            <div className="f g8" style={{justifyContent:"flex-end"}}>
+              <button className="btn btn-g" onClick={closeForm}>Cancelar</button>
+              <button className="btn btn-i" disabled={!form.nombre.trim()||!form.precio} onClick={save}>
+                💾 {editSub?"Guardar cambios":"Crear plan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── PATIENT STYLES ─────────────────────────────────────────────────────── */
 const PatientStyles = () => (
   <style>{`
@@ -337,6 +497,31 @@ const PatientStyles = () => (
     .antro-card .av{font-size:16px;font-weight:700;color:var(--sage-dk);font-family:'Playfair Display',serif}
     .antro-card .al{font-size:10px;color:var(--mid);text-transform:uppercase;letter-spacing:.07em;margin-top:2px}
     .date-chip{display:inline-block;background:rgba(58,122,181,.1);color:var(--info);border-radius:20px;padding:2px 9px;font-size:10px;font-weight:600}
+    /* ── SUBSCRIPTIONS ── */
+    .sub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px}
+    .sub-card{background:#fff;border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;transition:transform .2s,box-shadow .2s}
+    .sub-card:hover{transform:translateY(-2px);box-shadow:var(--sh-lg)}
+    .sub-head{padding:18px 20px 14px;display:flex;align-items:center;gap:12px}
+    .sub-logo{width:46px;height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;overflow:hidden}
+    .sub-logo img{width:100%;height:100%;object-fit:contain}
+    .sub-body{padding:0 20px 16px;flex:1}
+    .sub-price{font-family:'Playfair Display',serif;font-size:28px;font-weight:700;line-height:1}
+    .sub-period{font-size:11px;color:var(--mid)}
+    .sub-desc{font-size:12px;color:var(--mid);margin-top:6px;line-height:1.5}
+    .sub-actions{display:flex;gap:6px;padding:0 20px 16px}
+    /* ── PATIENT PLAN EDITOR ── */
+    .pt-planner{border:1.5px solid var(--cream-dk);border-radius:var(--r);overflow:hidden}
+    .pt-planner-hd{background:linear-gradient(90deg,var(--sage-dk),var(--sage));padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+    .pt-planner-hd h4{color:#fff;font-size:14px;margin:0}
+    .pt-planner-body{padding:16px;overflow-x:auto}
+    .pt-plan-actions{display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;background:var(--cream);border-top:1px solid var(--cream-dk)}
+    /* ── EMAIL FAB ── */
+    .email-fab{position:fixed;bottom:28px;left:28px;z-index:900;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+    .email-fab-main{width:48px;height:48px;border-radius:50%;background:var(--sage-dk);color:#fff;border:none;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:var(--sh-lg);transition:transform .18s,background .18s}
+    .email-fab-main:hover{background:var(--sage);transform:scale(1.08)}
+    .email-fab-item{display:flex;align-items:center;gap:9px;background:#fff;border-radius:24px;padding:7px 14px 7px 8px;box-shadow:var(--sh);font-size:12px;font-weight:600;color:var(--char);cursor:pointer;border:1.5px solid var(--cream-dk);transition:all .15s;white-space:nowrap;text-decoration:none}
+    .email-fab-item:hover{box-shadow:var(--sh-lg);transform:translateX(3px)}
+    .email-fab-icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px}
   `}</style>
 );
 
@@ -460,7 +645,7 @@ function InterviewBuilder({ questions, onSave, onClose }) {
 }
 
 /* ─── PATIENT FORM ──────────────────────────────────────────────────────── */
-function PatientForm({ patient, questions, onSave, onClose }) {
+function PatientForm({ patient, questions, subscriptions, onSave, onClose }) {
   const blank = {
     id:null, name:"", email:"", phone:"", sex:"F", genero:"F",
     birthdate:"", weight:"", height:"", age:"",
@@ -538,7 +723,29 @@ function PatientForm({ patient, questions, onSave, onClose }) {
               )}
             </div>
             <div className="fg"><label className="fl">Plan contratado</label>
-              <input className="fi" value={form.contrato||""} onChange={e=>sf("contrato",e.target.value)} placeholder="Básico · Premium · Intensivo..."/>
+              {subscriptions && subscriptions.length > 0 ? (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8,marginTop:4}}>
+                  {subscriptions.map(s=>(
+                    <div key={s.id} onClick={()=>sf("contrato",s.nombre)}
+                      style={{border:`2px solid ${form.contrato===s.nombre?s.color:"var(--cream-dk)"}`,borderRadius:9,padding:"9px 11px",cursor:"pointer",
+                        background:form.contrato===s.nombre?s.color+"14":"#fff",transition:"all .15s",display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:18}}>{s.icono||"📋"}</span>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:12,color:form.contrato===s.nombre?s.color:"var(--char)"}}>{s.nombre}</div>
+                        <div style={{fontSize:10,color:"var(--mid)"}}>{s.precio}€/mes</div>
+                      </div>
+                    </div>
+                  ))}
+                  <div onClick={()=>sf("contrato","")}
+                    style={{border:`2px solid ${!form.contrato?"var(--mid)":"var(--cream-dk)"}`,borderRadius:9,padding:"9px 11px",cursor:"pointer",
+                      background:!form.contrato?"var(--cream)":"#fff",transition:"all .15s",display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:18}}>🚫</span>
+                    <div style={{fontWeight:700,fontSize:12,color:"var(--mid)"}}>Sin plan</div>
+                  </div>
+                </div>
+              ) : (
+                <input className="fi" value={form.contrato||""} onChange={e=>sf("contrato",e.target.value)} placeholder="Básico · Premium · Intensivo..."/>
+              )}
             </div>
           </div>
           {/* Photo upload */}
@@ -677,6 +884,126 @@ function CheckInModal({ patient, onSave, onClose }) {
           <button className="btn btn-p" disabled={!weight} onClick={save}>✓ Guardar registro</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─── PATIENT PLAN EDITOR ───────────────────────────────────────────────── */
+function PatientPlanEditor({ patient, recipes, weekTemplates, onUpdate, onSaveTemplate, profile, showToast }) {
+  const [week, setWeek] = useState(() => patient.personalWeek || mkWeek());
+  const [modal, setModal] = useState(null);
+  const [saveAsGlobalOpen, setSaveAsGlobalOpen] = useState(false);
+  const [planName, setPlanName] = useState(patient.name + " — Plan Personalizado");
+  const [showPlanName, setShowPlanName] = useState(false);
+
+  // Sync if patient.personalWeek changes externally
+  useEffect(() => { setWeek(patient.personalWeek || mkWeek()); }, [patient.id]);
+
+  const addMeal = (day, meal, id) => setWeek(w => {
+    const nw = JSON.parse(JSON.stringify(w));
+    nw[day][meal] = [...(nw[day][meal]||[]), id];
+    return nw;
+  });
+  const removeMeal = (day, meal, idx) => setWeek(w => {
+    const nw = JSON.parse(JSON.stringify(w));
+    nw[day][meal] = (nw[day][meal]||[]).filter((_,i)=>i!==idx);
+    return nw;
+  });
+
+  const totalRecipes = Object.values(week).reduce((a,d)=>a+Object.values(d).reduce((b,m)=>b+(m||[]).length,0),0);
+  const shopList = buildShoppingList(week, recipes, 1.2);
+
+  const saveForPatient = () => {
+    onUpdate({ ...patient, personalWeek: week, fecha_asignacion: new Date().toISOString() });
+    showToast("Plan guardado para " + patient.name + " ✓");
+  };
+
+  const doPlanPDF = () => {
+    const ok = openPrintWindow(buildMenuPDF(week, recipes, profile));
+    if (ok) showToast("PDF menú — Ctrl+P para guardar", "info");
+    else showToast("Activa ventanas emergentes", "error");
+  };
+
+  const doShopPDF = () => {
+    onUpdate({ ...patient, fecha_lista_compra: new Date().toISOString() });
+    const ok = openPrintWindow(buildShopPDF(shopList, true, week, recipes, profile));
+    if (ok) showToast("PDF lista de compra — Ctrl+P para guardar", "info");
+    else showToast("Activa ventanas emergentes", "error");
+  };
+
+  return (
+    <div className="pt-planner" style={{marginBottom:16}}>
+      <div className="pt-planner-hd">
+        <h4>🗓 Diseñar plan personalizado</h4>
+        <span style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>{totalRecipes} recetas · {shopList.length} ing. en lista compra</span>
+      </div>
+      <div className="pt-planner-body">
+        <div className="wg" style={{minWidth:780}}>
+          <div className="wh" style={{background:"var(--char)",fontSize:9}}>Comida</div>
+          {DAYS.map(d=><div key={d} className="wh" style={{fontSize:9}}>{d}</div>)}
+          {MEALS.map(meal=>(
+            <React.Fragment key={meal}>
+              <div className="wml"><span>{MICON[meal]}</span><span style={{textAlign:"center",lineHeight:1.2,fontSize:9}}>{meal}</span></div>
+              {DAYS.map(day=>(
+                <div key={day+meal} className="wc">
+                  {(week[day]?.[meal]||[]).map((id,i)=>{
+                    const r = recipes.find(x=>x.id===id);
+                    return r ? (
+                      <div key={i} className="mt">
+                        <span style={{fontSize:9,flex:1,lineHeight:1.3}}>{r.name}</span>
+                        <button onClick={()=>removeMeal(day,meal,i)}>✕</button>
+                      </div>
+                    ) : null;
+                  })}
+                  <button className="ab" onClick={()=>setModal({day,meal})}>+</button>
+                </div>
+              ))}
+            </React.Fragment>
+          ))}
+        </div>
+        {/* Daily summary */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:8,marginTop:14}}>
+          {DAYS.map(day=>{
+            const dm = dayM(week,day,recipes);
+            return dm.kcal > 0 ? (
+              <div key={day} style={{background:"var(--cream)",borderRadius:6,padding:"7px 9px"}}>
+                <div style={{fontWeight:700,fontSize:10,color:"var(--sage-dk)",marginBottom:3}}>{day.slice(0,3)}</div>
+                <div style={{fontSize:11,color:"var(--char)",fontWeight:600}}>{dm.kcal} kcal</div>
+                <div style={{fontSize:9,color:"var(--mid)"}}>{dm.prot}g P · {dm.carbs}g HC</div>
+              </div>
+            ) : null;
+          })}
+        </div>
+      </div>
+
+      {/* Action bar */}
+      <div className="pt-plan-actions">
+        <button className="btn btn-p btn-sm" disabled={totalRecipes===0} onClick={saveForPatient}>
+          💾 Guardar plan del paciente
+        </button>
+        <button className="btn btn-i btn-sm" disabled={totalRecipes===0} onClick={()=>setSaveAsGlobalOpen(true)}>
+          📋 Guardar como plantilla
+        </button>
+        {totalRecipes > 0 && <>
+          <button className="btn btn-t btn-sm" onClick={doPlanPDF}>🖨️ PDF Menú</button>
+          <button className="btn btn-o btn-sm" onClick={doShopPDF}>🛒 PDF Lista Compra</button>
+        </>}
+        <button className="btn btn-g btn-sm" style={{marginLeft:"auto"}} onClick={()=>{if(window.confirm("¿Limpiar todo el plan?"))setWeek(mkWeek());}}>🗑 Limpiar</button>
+      </div>
+
+      {/* Add meal modal */}
+      {modal && (
+        <AddMeal day={modal.day} meal={modal.meal} recipes={recipes}
+          onAdd={id=>addMeal(modal.day,modal.meal,id)}
+          onClose={()=>setModal(null)}/>
+      )}
+
+      {/* Save as global template modal */}
+      {saveAsGlobalOpen && (
+        <SaveTemplateModal week={week} recipes={recipes}
+          onSave={tpl=>{ onSaveTemplate(tpl); showToast("Plantilla guardada ✓"); }}
+          onClose={()=>setSaveAsGlobalOpen(false)}/>
+      )}
     </div>
   );
 }
@@ -831,7 +1158,7 @@ function AntroSection({ patient, onUpdate }) {
 }
 
 /* ─── PATIENT DETAIL ────────────────────────────────────────────────────── */
-function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, onEdit, onDelete, onAddCheckin, onAssignTemplate, onUpdate }) {
+function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, onEdit, onDelete, onAddCheckin, onAssignTemplate, onUpdate, onSaveTemplate, showToast }) {
   const [tab, setTab] = useState("overview");
   const [checkInOpen, setCheckInOpen] = useState(false);
 
@@ -979,53 +1306,97 @@ function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, on
 
         {/* PLAN TAB */}
         {tab==="plan" && <div>
-          <h4 className="st" style={{fontSize:13}}>Plan semanal asignado</h4>
-          {assignedTpl
-            ? <div style={{background:"var(--cream)",borderRadius:8,padding:14,marginBottom:16}}>
+
+          {/* ─ Saved personal plan summary ─ */}
+          {patient.personalWeek && (() => {
+            const tRecipes = Object.values(patient.personalWeek).reduce((a,d)=>a+Object.values(d).reduce((b,m)=>b+(m||[]).length,0),0);
+            const sl = buildShoppingList(patient.personalWeek, recipes, 1.2);
+            if (tRecipes === 0) return null;
+            return (
+              <div style={{background:"linear-gradient(90deg,rgba(58,92,58,.06),rgba(58,122,181,.06))",border:"1.5px solid var(--sage-lt)",borderRadius:"var(--r)",padding:14,marginBottom:20}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+                  <span style={{fontWeight:700,fontSize:13,color:"var(--sage-dk)"}}>✅ Plan personalizado activo</span>
+                  {patient.fecha_asignacion && <span className="date-chip">📅 Asignado: {fmtFecha(patient.fecha_asignacion)}</span>}
+                  {patient.fecha_lista_compra && <span className="date-chip">🛒 Lista: {fmtFecha(patient.fecha_lista_compra)}</span>}
+                </div>
+                <div style={{fontSize:12,color:"var(--mid)",marginBottom:12}}>
+                  {tRecipes} recetas · {sl.length} ingredientes en lista de compra
+                </div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button className="btn btn-t btn-sm" onClick={()=>{
+                    const ok = openPrintWindow(buildMenuPDF(patient.personalWeek,recipes,{}));
+                    if(ok)showToast("PDF menú — Ctrl+P para guardar","info");
+                    else showToast("Activa ventanas emergentes","error");
+                  }}>🖨️ PDF Menú + Recetas</button>
+                  <button className="btn btn-p btn-sm" onClick={()=>{
+                    onUpdate && onUpdate({...patient, fecha_lista_compra:new Date().toISOString()});
+                    const ok = openPrintWindow(buildShopPDF(sl,true,patient.personalWeek,recipes,{}));
+                    if(ok)showToast("PDF lista de compra — Ctrl+P","info");
+                    else showToast("Activa ventanas emergentes","error");
+                  }}>🛒 PDF Lista Compra</button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ─ Plan editor ─ */}
+          <PatientPlanEditor
+            patient={patient}
+            recipes={recipes}
+            weekTemplates={weekTemplates}
+            onUpdate={onUpdate}
+            onSaveTemplate={onSaveTemplate}
+            profile={{}}
+            showToast={showToast}
+          />
+
+          {/* ─ Assign from existing templates ─ */}
+          <div style={{marginTop:20}}>
+            <h4 className="st" style={{fontSize:13}}>📚 O asignar plantilla existente</h4>
+            {assignedTpl && (
+              <div style={{background:"var(--cream)",borderRadius:8,padding:14,marginBottom:14}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
                   <div style={{fontWeight:700,fontSize:14,color:"var(--info)"}}>{assignedTpl.name}</div>
                   {assignedTpl.es_plantilla && <span className="badge bg" style={{fontSize:10}}>📋 Plantilla</span>}
                 </div>
-                {assignedTpl.description && <div style={{fontSize:12,color:"var(--mid)",marginBottom:10}}>{assignedTpl.description}</div>}
-                {/* Dates row */}
-                <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:11,marginBottom:12}}>
+                {assignedTpl.description && <div style={{fontSize:12,color:"var(--mid)",marginBottom:8}}>{assignedTpl.description}</div>}
+                <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:11,marginBottom:10}}>
                   {patient.fecha_asignacion && <span>📅 <b>Asignada:</b> {fmtFecha(patient.fecha_asignacion)}</span>}
                   {patient.fecha_lista_compra && <span>🛒 <b>Lista compra:</b> {fmtFecha(patient.fecha_lista_compra)}</span>}
-                  {assignedTpl.createdAt && <span style={{color:"var(--mid)"}}>🗓 Plantilla creada: {fmtFecha(assignedTpl.createdAt)}</span>}
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
-                  {DAYS.map(d=><div key={d} style={{background:"#fff",borderRadius:6,padding:"6px 4px",fontSize:9,textAlign:"center"}}>
-                    <div style={{fontWeight:700,color:"var(--sage-dk)",marginBottom:3}}>{d.slice(0,3)}</div>
-                    {MEALS.map(m=>(assignedTpl.week[d]?.[m]||[]).length>0&&<div key={m} style={{fontSize:8,color:"var(--mid)"}}>{(assignedTpl.week[d]?.[m]||[]).map(id=>recipes.find(r=>r.id===id)?.name||'').join(', ')}</div>)}
-                  </div>)}
-                </div>
-                <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button className="btn btn-t btn-sm" onClick={()=>{
+                    const ok=openPrintWindow(buildMenuPDF(assignedTpl.week,recipes,{}));
+                    if(ok)showToast("PDF menú — Ctrl+P","info");else showToast("Activa ventanas emergentes","error");
+                  }}>🖨️ PDF Menú</button>
                   <button className="btn btn-p btn-sm" onClick={()=>{
-                    const now = new Date().toISOString();
-                    onUpdate && onUpdate({...patient, fecha_lista_compra: now});
-                  }}>🛒 Marcar entrega lista compra</button>
-                  <button className="btn btn-g btn-sm" onClick={()=>onAssignTemplate(patient.id,null)}>✕ Quitar plan asignado</button>
+                    const sl=buildShoppingList(assignedTpl.week,recipes,1.2);
+                    onUpdate&&onUpdate({...patient,fecha_lista_compra:new Date().toISOString()});
+                    const ok=openPrintWindow(buildShopPDF(sl,true,assignedTpl.week,recipes,{}));
+                    if(ok)showToast("PDF lista compra — Ctrl+P","info");else showToast("Activa ventanas emergentes","error");
+                  }}>🛒 PDF Lista</button>
+                  <button className="btn btn-g btn-sm" onClick={()=>onAssignTemplate(patient.id,null)}>✕ Quitar plantilla</button>
                 </div>
               </div>
-            : <p style={{fontSize:13,color:"var(--mid)",marginBottom:14}}>Sin plan asignado. Selecciona una plantilla:</p>}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
-            {weekTemplates.map(tpl=>(
-              <div key={tpl.id} className={"plan-tpl-card"+(patient.assignedTemplateId===tpl.id?" selected":"")}
-                onClick={()=>{
-                  onAssignTemplate(patient.id, tpl.id);
-                  // set fecha_asignacion when assigning
-                  onUpdate && onUpdate({...patient, assignedTemplateId:tpl.id, fecha_asignacion:new Date().toISOString()});
-                }}>
-                <div style={{fontWeight:700,fontSize:13,color:"var(--info)",marginBottom:3}}>{tpl.name}</div>
-                {tpl.es_plantilla && <span className="badge bg" style={{fontSize:9,marginBottom:4,display:"inline-block"}}>📋 Plantilla</span>}
-                {tpl.description && <div style={{fontSize:11,color:"var(--mid)"}}>{tpl.description}</div>}
-                <div style={{fontSize:10,color:"var(--sage-dk)",marginTop:6}}>
-                  {Object.values(tpl.week||{}).reduce((a,day)=>a+Object.values(day||{}).reduce((b,m)=>b+(m||[]).length,0),0)} recetas asignadas
+            )}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:10}}>
+              {weekTemplates.map(tpl=>(
+                <div key={tpl.id} className={"plan-tpl-card"+(patient.assignedTemplateId===tpl.id?" selected":"")}
+                  onClick={()=>{
+                    onAssignTemplate(patient.id,tpl.id);
+                    onUpdate&&onUpdate({...patient,assignedTemplateId:tpl.id,fecha_asignacion:new Date().toISOString()});
+                  }}>
+                  <div style={{fontWeight:700,fontSize:13,color:"var(--info)",marginBottom:3}}>{tpl.name}</div>
+                  {tpl.es_plantilla&&<span className="badge bg" style={{fontSize:9,marginBottom:4,display:"inline-block"}}>📋 Plantilla</span>}
+                  {tpl.description&&<div style={{fontSize:11,color:"var(--mid)"}}>{tpl.description}</div>}
+                  <div style={{fontSize:10,color:"var(--sage-dk)",marginTop:5}}>
+                    {Object.values(tpl.week||{}).reduce((a,day)=>a+Object.values(day||{}).reduce((b,m)=>b+(m||[]).length,0),0)} recetas
+                  </div>
+                  {tpl.createdAt&&<div style={{fontSize:9,color:"var(--mid)",marginTop:2}}>Creada: {fmtFecha(tpl.createdAt)}</div>}
                 </div>
-                {tpl.createdAt && <div style={{fontSize:9,color:"var(--mid)",marginTop:3}}>Creada: {fmtFecha(tpl.createdAt)}</div>}
-              </div>
-            ))}
-            {weekTemplates.length===0 && <p style={{fontSize:12,color:"var(--mid)"}}>Crea plantillas semanales en el Planificador → "Guardar como plantilla".</p>}
+              ))}
+              {weekTemplates.length===0&&<p style={{fontSize:12,color:"var(--mid)"}}>Crea plantillas en el Planificador o diseña arriba el plan personalizado.</p>}
+            </div>
           </div>
         </div>}
       </div>
@@ -1035,7 +1406,7 @@ function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, on
 }
 
 /* ─── PATIENTS VIEW ─────────────────────────────────────────────────────── */
-function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUpdate, onDelete, onAddCheckin, onAssignTemplate, showToast }) {
+function PatientsView({ patients, questions, recipes, weekTemplates, subscriptions, onAdd, onUpdate, onDelete, onAddCheckin, onAssignTemplate, onSaveTemplate, showToast }) {
   const [form, setForm] = useState(false);
   const [edit, setEdit] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -1133,9 +1504,9 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
             })}
           </div>}
 
-      {(form||edit) && <PatientForm patient={edit} questions={localQuestions}
+      {(form||edit) && <PatientForm patient={edit} questions={localQuestions} subscriptions={subscriptions||[]}
         onSave={p=>{edit?onUpdate(p):onAdd(p);showToast(edit?"Paciente actualizado ✓":"Paciente registrado ✓");setForm(false);setEdit(null);}}
-        onClose={()=>{setForm(false);setEdit(null);}}/>}
+        onClose={()=>{setForm(false);setEdit(null);}}/> }
 
       {detail && <PatientDetail
         patient={patients.find(p=>p.id===detail.id)||detail}
@@ -1145,6 +1516,8 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
         onDelete={id=>{onDelete(id);setDetail(null);showToast("Paciente eliminado");}}
         onAddCheckin={onAddCheckin}
         onAssignTemplate={onAssignTemplate}
+        onSaveTemplate={onSaveTemplate}
+        showToast={showToast}
         onUpdate={p=>{onUpdate(p);showToast("Paciente actualizado ✓");}}/>}
 
       {builderOpen && <InterviewBuilder questions={localQuestions}
@@ -1690,17 +2063,20 @@ function BillingChart({ patients }) {
 }
 
 /* ─── DASHBOARD ───────────────────────────────────────────────────────────── */
-function Dashboard({ recipes, week, patients }) {
-  // Patient counts by plan
+function Dashboard({ recipes, week, patients, subscriptions }) {
+  const subs = subscriptions || DEFAULT_SUBS;
+
+  // Patient counts by contrato (matches subscription nombre)
   const planCounts = useMemo(() => {
-    const c = { basico:0, pro:0, premium:0 };
-    patients.forEach(p => { if (p.plan && c[p.plan] !== undefined) c[p.plan]++; });
-    // If no plans set yet, distribute demo
-    if (c.basico+c.pro+c.premium === 0 && patients.length > 0) {
-      patients.forEach((p,i) => { const pl = PLANS_DASH[i%3]; c[pl]++; });
+    const c = {};
+    subs.forEach(s => { c[s.nombre] = 0; });
+    patients.forEach(p => { if (p.contrato && c[p.contrato] !== undefined) c[p.contrato]++; });
+    // Demo fallback if no contrato set
+    if (Object.values(c).every(v=>v===0) && patients.length > 0) {
+      patients.forEach((p,i) => { const s = subs[i % subs.length]; if(s) c[s.nombre]++; });
     }
     return c;
-  }, [patients]);
+  }, [patients, subs]);
 
   const totalPatients = patients.length;
 
@@ -1711,32 +2087,30 @@ function Dashboard({ recipes, week, patients }) {
       const wAgo = 4-i;
       const wEnd = new Date(now); wEnd.setDate(wEnd.getDate() - wAgo*7);
       const wStart = new Date(wEnd); wStart.setDate(wStart.getDate()-6);
-      const active = { basico:0, pro:0, premium:0 };
+      const active = {};
+      subs.forEach(s => { active[s.nombre] = 0; });
       patients.forEach((p,pi) => {
-        const plan = p.plan || PLANS_DASH[pi%3];
-        // Check if patient had a check-in in this week window
+        const planNombre = p.contrato || subs[pi % subs.length]?.nombre;
         const hasCheckin = (p.history||[]).some(h => {
           const d = new Date(h.date);
           return d >= wStart && d <= wEnd;
         });
-        // For demo: simulate activity if no real history
         const isActive = hasCheckin || (patients.length > 0 && Math.random() > 0.3);
-        if (isActive && active[plan] !== undefined) active[plan]++;
+        if (isActive && planNombre && active[planNombre] !== undefined) active[planNombre]++;
       });
       // Fallback demo if no patients
       if (totalPatients === 0) {
-        const factor = [0.7,0.8,0.88,0.94,1][i];
-        active.basico = Math.round(4*factor); active.pro = Math.round(3*factor); active.premium = Math.round(2*factor);
+        subs.forEach((s,si) => { active[s.nombre] = Math.round((3-si)*[0.7,0.8,0.88,0.94,1][i] || 1); });
       }
       const fmt = d => `${d.getDate()}/${d.getMonth()+1}`;
       return {
         label: wAgo===0 ? "Semana actual" : `${fmt(wStart)}–${fmt(wEnd)}`,
         isCurrent: wAgo===0,
-        basico: active.basico, pro: active.pro, premium: active.premium,
-        total: active.basico+active.pro+active.premium,
+        ...active,
+        total: Object.values(active).reduce((a,b)=>a+b,0),
       };
     });
-  }, [patients, totalPatients]);
+  }, [patients, totalPatients, subs]);
 
   // Load Chart.js once
   useEffect(() => {
@@ -1751,7 +2125,7 @@ function Dashboard({ recipes, week, patients }) {
       <div className="ph"><h2>Dashboard</h2><p>Panel de gestión de pacientes y facturación</p></div>
 
       {/* ── Stat Cards ── */}
-      <div className="ds" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+      <div className="ds" style={{gridTemplateColumns:`repeat(${Math.min(subs.length+1,5)},1fr)`}}>
         <div className="dsc">
           <div className="num" style={{color:"var(--sage-dk)"}}>{totalPatients}</div>
           <div className="dlbl">Total pacientes</div>
@@ -1759,12 +2133,17 @@ function Dashboard({ recipes, week, patients }) {
             {patients.filter(p=>(p.history||[]).length>0).length} con seguimiento activo
           </div>
         </div>
-        {PLANS_DASH.map(plan => (
-          <div className="dsc" key={plan} style={{borderTop:`3px solid ${PLAN_COLORS_DASH[plan]}`}}>
-            <div className="num" style={{color:PLAN_COLORS_DASH[plan]}}>{planCounts[plan]}</div>
-            <div className="dlbl">Plan {PLAN_LABELS_DASH[plan]}</div>
+        {subs.map(s => (
+          <div className="dsc" key={s.id} style={{borderTop:`3px solid ${s.color}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+              {s.logo
+                ? <img src={s.logo} style={{width:22,height:22,borderRadius:5,objectFit:"contain"}}/>
+                : <span style={{fontSize:18}}>{s.icono||"📋"}</span>}
+            </div>
+            <div className="num" style={{color:s.color}}>{planCounts[s.nombre]||0}</div>
+            <div className="dlbl">Plan {s.nombre}</div>
             <div style={{fontSize:11,color:"var(--mid)",marginTop:4}}>
-              {(planCounts[plan]*PLAN_PRICES_DASH[plan]).toLocaleString("es-ES")} €/mes
+              {((planCounts[s.nombre]||0)*s.precio).toLocaleString("es-ES")} €/mes
             </div>
           </div>
         ))}
@@ -1777,9 +2156,9 @@ function Dashboard({ recipes, week, patients }) {
           <table className="it">
             <thead>
               <tr>
-                {["Período","Básico","Pro","Premium","Total"].map((h,i) => (
-                  <th key={h} style={{textAlign:i===0?"left":"right"}}>{h}</th>
-                ))}
+                <th>Período</th>
+                {subs.map(s=><th key={s.id} style={{textAlign:"right"}}>{s.nombre}</th>)}
+                <th style={{textAlign:"right"}}>Total</th>
               </tr>
             </thead>
             <tbody>
@@ -1789,8 +2168,8 @@ function Dashboard({ recipes, week, patients }) {
                     {row.label}
                     {row.isCurrent && <span className="badge bg" style={{marginLeft:8,fontSize:9}}>actual</span>}
                   </td>
-                  {PLANS_DASH.map(plan => (
-                    <td key={plan} style={{textAlign:"right",fontWeight:600,color:PLAN_COLORS_DASH[plan]}}>{row[plan]}</td>
+                  {subs.map(s=>(
+                    <td key={s.id} style={{textAlign:"right",fontWeight:600,color:s.color}}>{row[s.nombre]||0}</td>
                   ))}
                   <td style={{textAlign:"right",fontWeight:700,color:"var(--sage-dk)"}}>{row.total}</td>
                 </tr>
@@ -1884,6 +2263,46 @@ function ExportView({recipes,week,profile,onProfileChange,showToast}){
     </div>}
   </div>);}
 
+/* ─── EMAIL FAB ───────────────────────────────────────────────────────────── */
+function EmailFAB() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="email-fab">
+      {open && (
+        <>
+          <a className="email-fab-item"
+            href="https://mail.google.com" target="_blank" rel="noopener noreferrer"
+            title="Abrir Gmail">
+            <div className="email-fab-icon" style={{background:"#fce8e6"}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M20 4H4C2.9 4 2 4.9 2 6v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z" fill="#fff" stroke="#ea4335" strokeWidth="1.5"/>
+                <path d="M2 6l10 7 10-7" stroke="#ea4335" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+            </div>
+            Gmail
+          </a>
+          <a className="email-fab-item"
+            href="https://outlook.live.com" target="_blank" rel="noopener noreferrer"
+            title="Abrir Outlook">
+            <div className="email-fab-icon" style={{background:"#e8f0fe"}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <rect x="2" y="4" width="20" height="16" rx="2" fill="#fff" stroke="#0072c6" strokeWidth="1.5"/>
+                <path d="M2 8h20" stroke="#0072c6" strokeWidth="1.2"/>
+                <circle cx="8" cy="14" r="3" fill="#0072c6" opacity=".8"/>
+                <path d="M11 11h7M11 14h5M11 17h7" stroke="#0072c6" strokeWidth="1.2" strokeLinecap="round"/>
+              </svg>
+            </div>
+            Outlook
+          </a>
+        </>
+      )}
+      <button className="email-fab-main" onClick={()=>setOpen(o=>!o)} title={open?"Cerrar":"Abrir email"}>
+        {open ? "✕" : "✉️"}
+      </button>
+    </div>
+  );
+}
+
 /* ─── APP ROOT ────────────────────────────────────────────────────────────── */
 export default function App(){
   const[view,setView]=useState("dashboard");
@@ -1894,6 +2313,7 @@ export default function App(){
   const[patients,setPatients]=useState(()=>{try{const s=localStorage.getItem("np8_pts");return s?JSON.parse(s):[];}catch{return [];}});
   const[weekTemplates,setWeekTemplates]=useState(()=>{try{const s=localStorage.getItem("np8_tpl");return s?JSON.parse(s):[];}catch{return [];}});
   const[interviewQs,setInterviewQs]=useState(()=>{try{const s=localStorage.getItem("np8_iqs");return s?JSON.parse(s):DEFAULT_QUESTIONS;}catch{return DEFAULT_QUESTIONS;}});
+  const[subscriptions,setSubscriptions]=useState(()=>{try{const s=localStorage.getItem("np8_subs");return s?JSON.parse(s):DEFAULT_SUBS;}catch{return DEFAULT_SUBS;}});
 
   useEffect(()=>{try{localStorage.setItem("np8_r",JSON.stringify(recipes));}catch{}},[recipes]);
   useEffect(()=>{try{localStorage.setItem("np8_w",JSON.stringify(week));}catch{}},[week]);
@@ -1901,6 +2321,7 @@ export default function App(){
   useEffect(()=>{try{localStorage.setItem("np8_pts",JSON.stringify(patients));}catch{}},[patients]);
   useEffect(()=>{try{localStorage.setItem("np8_tpl",JSON.stringify(weekTemplates));}catch{}},[weekTemplates]);
   useEffect(()=>{try{localStorage.setItem("np8_iqs",JSON.stringify(interviewQs));}catch{}},[interviewQs]);
+  useEffect(()=>{try{localStorage.setItem("np8_subs",JSON.stringify(subscriptions));}catch{}},[subscriptions]);
 
   const showToast=useCallback((msg,type="success")=>setToast({msg,type,k:Date.now()}),[]);
   const addR=r=>setRecipes(rs=>[...rs,r]);
@@ -1914,14 +2335,18 @@ export default function App(){
   const addCheckin=(patientId,entry)=>setPatients(ps=>ps.map(p=>{if(p.id!==patientId)return p;const h=[...(p.history||[]),entry];h.sort((a,b)=>a.date.localeCompare(b.date));const last=h[h.length-1];return{...p,history:h,weight:last?.weight||p.weight};}));
   const assignTpl=(patientId,tplId)=>setPatients(ps=>ps.map(p=>p.id===patientId?{...p,assignedTemplateId:tplId||null}:p));
   const saveTpl=tpl=>setWeekTemplates(ts=>[...ts,tpl]);
+  const addSub=s=>setSubscriptions(ss=>[...ss,s]);
+  const updSub=s=>setSubscriptions(ss=>ss.map(x=>x.id===s.id?s:x));
+  const delSub=id=>setSubscriptions(ss=>ss.filter(x=>x.id!==id));
 
   const NAV=[
-    {id:"dashboard",icon:"📊",label:"Dashboard"},
-    {id:"patients", icon:"👥",label:"Pacientes"},
-    {id:"recipes",  icon:"📋",label:"Recetas"},
-    {id:"planner",  icon:"🗓", label:"Planificador"},
-    {id:"shopping", icon:"🛒",label:"Lista Compra"},
-    {id:"export",   icon:"⬇️",label:"Exportar"},
+    {id:"dashboard",   icon:"📊", label:"Dashboard"},
+    {id:"patients",    icon:"👥", label:"Pacientes"},
+    {id:"suscripciones",icon:"💳",label:"Suscripciones"},
+    {id:"recipes",     icon:"📋", label:"Recetas"},
+    {id:"planner",     icon:"🗓",  label:"Planificador"},
+    {id:"shopping",    icon:"🛒", label:"Lista Compra"},
+    {id:"export",      icon:"⬇️", label:"Exportar"},
   ];
   return(<><Styles/>
     <div className="shell">
@@ -1931,14 +2356,16 @@ export default function App(){
         <div style={{marginTop:"auto",padding:"0 24px"}}><div style={{fontSize:10,color:"rgba(255,255,255,.3)",lineHeight:2}}>👥 Pacientes + historial<br/>📊 Harris-Benedict<br/>📝 Cuestionario personalizable<br/>💾 Plantillas semanales</div></div>
       </aside>
       <main className="main">
-        {view==="dashboard"&&<Dashboard recipes={recipes} week={week} patients={patients}/>}
-        {view==="recipes"  &&<RecipesView recipes={recipes} onAdd={addR} onUpdate={updR} onDelete={delR} showToast={showToast}/>}
-        {view==="planner"  &&<PlannerView week={week} recipes={recipes} onAdd={addW} onRemove={rmW} onSaveTemplate={saveTpl} showToast={showToast}/>}
-        {view==="patients" &&<PatientsView patients={patients} questions={interviewQs} recipes={recipes} weekTemplates={weekTemplates} onAdd={addPt} onUpdate={updPt} onDelete={delPt} onAddCheckin={addCheckin} onAssignTemplate={assignTpl} showToast={showToast}/>}
-        {view==="shopping" &&<ShoppingView week={week} recipes={recipes} profile={profile} showToast={showToast}/>}
-        {view==="export"   &&<ExportView recipes={recipes} week={week} profile={profile} onProfileChange={setProfile} showToast={showToast}/>}
+        {view==="dashboard"      &&<Dashboard recipes={recipes} week={week} patients={patients} subscriptions={subscriptions}/>}
+        {view==="recipes"        &&<RecipesView recipes={recipes} onAdd={addR} onUpdate={updR} onDelete={delR} showToast={showToast}/>}
+        {view==="planner"        &&<PlannerView week={week} recipes={recipes} onAdd={addW} onRemove={rmW} onSaveTemplate={saveTpl} showToast={showToast}/>}
+        {view==="patients"       &&<PatientsView patients={patients} questions={interviewQs} recipes={recipes} weekTemplates={weekTemplates} subscriptions={subscriptions} onAdd={addPt} onUpdate={updPt} onDelete={delPt} onAddCheckin={addCheckin} onAssignTemplate={assignTpl} onSaveTemplate={saveTpl} showToast={showToast}/>}
+        {view==="suscripciones"  &&<SubscriptionsView subscriptions={subscriptions} onAdd={addSub} onUpdate={updSub} onDelete={delSub} showToast={showToast}/>}
+        {view==="shopping"       &&<ShoppingView week={week} recipes={recipes} profile={profile} showToast={showToast}/>}
+        {view==="export"         &&<ExportView recipes={recipes} week={week} profile={profile} onProfileChange={setProfile} showToast={showToast}/>}
       </main>
     </div>
+    <EmailFAB/>
     {toast&&<Toast key={toast.k} msg={toast.msg} type={toast.type} onHide={()=>setToast(null)}/>}
   </>);
 }
