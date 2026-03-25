@@ -1642,12 +1642,12 @@ const parsePasted = (text) => {
 
     if (m) {
       const rawQ = m[1]; const rawU = m[2]; const rawN = m[3];
-      if (rawQ) qty = ES_NUMS[rawQ.toLowerCase()] ?? parseFloat(rawQ.replace(',', '.')) || 1;
+      if (rawQ) qty = (ES_NUMS[rawQ.toLowerCase()] ?? parseFloat(rawQ.replace(',', '.'))) || 1;
       if (rawU) unit = UNIT_MAP[rawU.toLowerCase()] || 'ud';
       if (rawN) name = rawN.trim();
     } else if (m2) {
       const rawQ = m2[1]; const rawN = m2[2];
-      if (rawQ) qty = ES_NUMS[rawQ.toLowerCase()] ?? parseFloat(rawQ.replace(',', '.')) || 1;
+      if (rawQ) qty = (ES_NUMS[rawQ.toLowerCase()] ?? parseFloat(rawQ.replace(',', '.'))) || 1;
       name = rawN.trim();
       // Guess unit from quantity
       unit = (qty <= 12) ? 'ud' : 'g';
