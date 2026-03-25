@@ -151,6 +151,26 @@ const Styles = () => (
     .profile-logo-box:hover{border-color:var(--sage)}
     .profile-logo-box img{max-height:80px;max-width:180px;object-fit:contain}
     ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--cream-dk);border-radius:8px}
+    /* ── INLINE AUTOCOMPLETE ── */
+    .ac-wrap{position:relative;flex:1}
+    .ac-drop{position:absolute;top:calc(100% + 3px);left:0;right:0;background:#fff;border:1.5px solid var(--sage-lt);border-radius:var(--rs);box-shadow:var(--sh-lg);z-index:300;max-height:200px;overflow-y:auto}
+    .ac-item{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;transition:background .1s;font-size:12px}
+    .ac-item:hover,.ac-item.active{background:var(--cream)}
+    .ac-name{flex:1;font-weight:500;color:var(--char)}
+    .ac-macros{font-size:10px;color:var(--mid);white-space:nowrap;display:flex;gap:6px}
+    .ac-macros b{color:var(--sage-dk)}
+    /* ── PASTE PREVIEW ── */
+    .paste-preview{margin-top:10px;border:1.5px solid var(--cream-dk);border-radius:var(--rs);overflow:hidden}
+    .paste-prev-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--cream);font-size:11px}
+    .paste-prev-row:last-child{border-bottom:none}
+    .paste-prev-row.matched{background:rgba(92,122,92,.04)}
+    .paste-prev-row.unmatched{background:rgba(196,124,59,.04)}
+    .paste-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+    .paste-dot.ok{background:var(--sage)}
+    .paste-dot.warn{background:var(--terra)}
+    .paste-ing-name{flex:1;font-weight:500;color:var(--char)}
+    .paste-ing-qty{color:var(--mid);white-space:nowrap}
+    .paste-ing-db{font-size:10px;color:var(--sage-dk);font-style:italic;margin-left:auto}
   `}</style>
 );
 
@@ -1587,7 +1607,92 @@ const perP=(m,p)=>({kcal:Math.round(m.kcal/p),prot:Math.round(m.prot/p),carbs:Ma
 const dayM=(week,day,recs)=>{let t={kcal:0,prot:0,carbs:0,fat:0};MEALS.forEach(m=>(week[day]?.[m]||[]).forEach(id=>{const r=recs.find(x=>x.id===id);if(!r)return;const v=perP(sumM(r.ingredients),r.portions);Object.keys(t).forEach(k=>t[k]+=v[k]);}));return t;};
 const weekM=(week,recs)=>{let t={kcal:0,prot:0,carbs:0,fat:0};DAYS.forEach(d=>{const m=dayM(week,d,recs);Object.keys(t).forEach(k=>t[k]+=m[k]);});return t;};
 const buildShoppingList=(week,recs,margin=1.2)=>{const map={};DAYS.forEach(day=>MEALS.forEach(meal=>{(week[day]?.[meal]||[]).forEach(id=>{const r=recs.find(x=>x.id===id);if(!r)return;r.ingredients.forEach(ing=>{const key=ing.name.toLowerCase().trim()+'||'+ing.unit;const qty=Number(ing.qty)||0;if(map[key])map[key].qty+=qty;else map[key]={name:ing.name,qty,unit:ing.unit};});});}));return Object.values(map).map(item=>({...item,qtyFinal:Math.ceil(item.qty*margin)})).sort((a,b)=>a.name.localeCompare(b.name));};
-const parsePasted=(text)=>{const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);return lines.map((line,i)=>{const m=line.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l|taza|cucharada|cucharadita|ud|pieza)?\s+(.+)$/i);const name=m?m[3].trim():line;const qty=m?parseFloat(m[1].replace(',','.')):1;const unit=m&&m[2]?m[2].toLowerCase():'ud';return{id:Date.now()+i+Math.random(),name,qty,unit,kcal:'',prot:'',carbs:'',fat:'',_auto:false,_k100:null,_p100:null,_c100:null,_f100:null};});};
+/* ─── INGREDIENT PARSER (versión mejorada) ──────────────────────────────── */
+const ES_NUMS = { un:1,una:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,media:0.5,medio:0.5,cuarto:0.25 };
+const UNIT_MAP = {
+  g:'g',gr:'g',gramo:'g',gramos:'g',
+  kg:'kg',kilogramo:'kg',kilogramos:'kg',
+  ml:'ml',mililitro:'ml',mililitros:'ml',
+  l:'l',litro:'l',litros:'l',
+  cucharada:'cucharada',cucharadas:'cucharada',
+  cucharadita:'cucharadita',cucharaditas:'cucharadita',
+  taza:'taza',tazas:'taza',
+  unidad:'ud',unidades:'ud',pieza:'ud',piezas:'ud',ud:'ud',
+  lata:'ud',bote:'ud',sobre:'ud',bolsa:'ud',
+  ralladura:'ud',pizca:'ud',puñado:'ud',diente:'ud',dientes:'ud',
+};
+// Words to strip from names so matching is cleaner
+const STRIP_WORDS = ['fresco','fresca','natural','crudo','cruda','cocido','cocida','hervido','hervida','asado','asada','picado','picada','troceado','grande','pequeño','pequeña','mediano','mediana'];
+
+const parsePasted = (text) => {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  return lines.map((line, i) => {
+    // Strip bullets: *, -, •, ·, numbers with . or )
+    let raw = line.replace(/^[\*\-•·]\s*/, '').replace(/^\d+[\.\)]\s*/, '').trim();
+
+    // Regex: optional_qty  optional_unit  optional_"de"  rest_of_name
+    // Handles "125 g de harina de trigo", "2 huevos", "1 cucharada de aceite", "Ralladura de un limón"
+    const rx = /^([\d]+(?:[.,]\d+)?|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|media|medio|cuarto)?\s*(g|gr|gramos?|kg|kilogramos?|ml|mililitros?|l|litros?|cucharadas?|cucharaditas?|tazas?|unidades?|piezas?|ud|lata|bote|sobre|bolsa|dientes?|pizcas?|puñados?|ralladuras?)\s*(?:de\s+)?(.+)$/i;
+    const rx2 = /^([\d]+(?:[.,]\d+)?|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|media|medio|cuarto)\s+(?:de\s+)?(.+)$/i;
+
+    let qty = 1, unit = 'g', name = raw;
+
+    const m = raw.match(rx);
+    const m2 = !m && raw.match(rx2);
+
+    if (m) {
+      const rawQ = m[1]; const rawU = m[2]; const rawN = m[3];
+      if (rawQ) qty = ES_NUMS[rawQ.toLowerCase()] ?? parseFloat(rawQ.replace(',', '.')) || 1;
+      if (rawU) unit = UNIT_MAP[rawU.toLowerCase()] || 'ud';
+      if (rawN) name = rawN.trim();
+    } else if (m2) {
+      const rawQ = m2[1]; const rawN = m2[2];
+      if (rawQ) qty = ES_NUMS[rawQ.toLowerCase()] ?? parseFloat(rawQ.replace(',', '.')) || 1;
+      name = rawN.trim();
+      // Guess unit from quantity
+      unit = (qty <= 12) ? 'ud' : 'g';
+    }
+
+    // Clean name: remove trailing commas/periods, parenthetical notes, adjectives
+    name = name
+      .replace(/[,.]$/, '')
+      .replace(/\s*\(.*?\)\s*$/, '')   // remove "(anisetes)", "(opcional)", etc.
+      .trim();
+
+    // Clean name for FOOD_DB lookup (strip descriptive adjectives)
+    const searchName = STRIP_WORDS.reduce((n, w) => n.replace(new RegExp('\\b' + w + '\\b', 'i'), ''), name).trim();
+
+    // Auto-lookup in FOOD_DB
+    const matches = searchLocal(searchName);
+    const best = matches[0];
+
+    const factor = (unit === 'g' || unit === 'ml' || unit === 'l' || unit === 'kg')
+      ? qty / 100
+      : qty / 100; // for 'ud' units we still divide by 100 since FOOD_DB is per100g
+
+    if (best) {
+      return {
+        id: Date.now() + i + Math.random(),
+        name, qty, unit,
+        kcal:  Math.round(best.kcal100  * factor),
+        prot:  Math.round(best.prot100  * factor * 10) / 10,
+        carbs: Math.round(best.carbs100 * factor * 10) / 10,
+        fat:   Math.round(best.fat100   * factor * 10) / 10,
+        _auto: true,
+        _k100: best.kcal100, _p100: best.prot100, _c100: best.carbs100, _f100: best.fat100,
+        _dbName: best.name,   // for the "matched as" indicator
+      };
+    }
+
+    return {
+      id: Date.now() + i + Math.random(),
+      name, qty, unit,
+      kcal:'', prot:'', carbs:'', fat:'',
+      _auto: false,
+      _k100: null, _p100: null, _c100: null, _f100: null,
+    };
+  });
+};
 const importURL=async(url)=>{const proxy='https://api.allorigins.win/get?url='+encodeURIComponent(url);const res=await fetch(proxy,{signal:AbortSignal.timeout(12000)});const data=await res.json();const html=data.contents||'';const ldBlocks=html.match(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)||[];for(const block of ldBlocks){try{const inner=block.replace(/<script[^>]*>/i,'').replace(/<\/script>/i,'');const json=JSON.parse(inner);const schemas=Array.isArray(json)?json:[json];for(const s of schemas){const recipe=s['@type']==='Recipe'?s:s['@graph']?.find(x=>x['@type']==='Recipe');if(recipe?.recipeIngredient?.length){return{title:recipe.name||'',ingredients:recipe.recipeIngredient.map((line,i)=>({...parsePasted(line)[0],id:Date.now()+i+Math.random()}))};} }}catch{}}throw new Error('No se encontraron ingredientes. Pega la lista manualmente.');};
 
 /* ─── DOWNLOAD ────────────────────────────────────────────────────────────── */
@@ -1733,9 +1838,148 @@ function BarcodeScanner({onDetect,onClose}){const vidRef=useRef(null);const done
 /* ─── FOOD SEARCH ─────────────────────────────────────────────────────────── */
 function FoodSearch({onSelect,onClose}){const[q,setQ]=useState("");const[results,setRes]=useState([]);const[scanOn,setScan]=useState(false);const[status,setSt]=useState("Escribe el nombre de un alimento");const[scMsg,setScMsg]=useState("");const[scLoad,setScLd]=useState(false);const timer=useRef(null);const doSearch=query=>{if(!query||query.length<2){setRes([]);setSt("Escribe al menos 2 letras");return;}const found=searchLocal(query);setRes(found);setSt(found.length?found.length+" resultado(s):":"Sin resultados.");};const handleInput=v=>{setQ(v);clearTimeout(timer.current);timer.current=setTimeout(()=>doSearch(v),200);};const handleBarcode=async code=>{setScan(false);setScLd(true);setScMsg("Buscando "+code+"...");try{const r=await fetch("https://world.openfoodfacts.org/api/v2/product/"+code+".json?fields=product_name,nutriments");const d=await r.json();if(d.status===1&&d.product){const n=d.product.nutriments||{};const kcal=n["energy-kcal_100g"]||(n.energy_100g?n.energy_100g/4.184:0);if(kcal>0){const food={name:(d.product.product_name||"Producto").trim(),kcal100:Math.round(kcal),prot100:Math.round((n.proteins_100g||0)*10)/10,carbs100:Math.round((n.carbohydrates_100g||0)*10)/10,fat100:Math.round((n.fat_100g||0)*10)/10};setRes([food]);setQ(food.name);setScMsg("Producto encontrado");setSt("Clic para seleccionar:");}else setScMsg("Sin datos nutricionales.");}else setScMsg("Codigo no encontrado.");}catch{setScMsg("Sin conexion. Busca por nombre.");}setScLd(false);};return(<>{scanOn&&<BarcodeScanner onDetect={handleBarcode} onClose={()=>setScan(false)}/>}<div className="sp"><div className="f g8 ac mb16" style={{flexWrap:"wrap"}}><input className="fi" autoFocus style={{flex:1,minWidth:180,padding:"8px 12px",fontSize:13}} placeholder="Buscar alimento..." value={q} onChange={e=>handleInput(e.target.value)}/><button className="btn btn-i btn-sm" onClick={()=>setScan(true)}>📷 Escanear</button><button className="btn btn-g btn-sm" onClick={onClose}>✕ Cerrar</button></div>{scMsg&&<p style={{fontSize:12,fontWeight:600,marginBottom:8,color:"var(--sage-dk)"}}>{scMsg}</p>}{scLoad&&<div className="f ac g8 ts tm"><div className="sp2 sp2-dk"/>Buscando...</div>}<p style={{fontSize:11,color:"var(--mid)",marginBottom:6}}>{status}</p>{results.length>0&&<div className="fl-list">{results.map((f,i)=><div key={i} className="fl-item" onClick={()=>onSelect(f)}><div style={{flex:1}}><div className="fl-name">{f.name}</div><div style={{fontSize:10,color:"var(--mid)"}}>por 100g</div></div><div className="fl-macros"><span><b>{f.kcal100}</b>kcal</span><span><b>{f.prot100}g</b>prot</span><span><b>{f.carbs100}g</b>HC</span><span><b>{f.fat100}g</b>grs</span></div></div>)}</div>}</div></>);}
 
-/* ─── ING ROW ─────────────────────────────────────────────────────────────── */
+/* ─── ING ROW (con autocompletado inline) ───────────────────────────────── */
 const blankIng=()=>({id:Date.now()+Math.random(),name:"",qty:"",unit:"g",kcal:"",prot:"",carbs:"",fat:"",_auto:false,_k100:null,_p100:null,_c100:null,_f100:null});
-function IngRow({ing,idx,onChange,onRemove}){const[open,setOpen]=useState(false);const[flash,setFlash]=useState(false);const set=(k,v)=>onChange(idx,k,v);const handleQty=v=>{set("qty",v);if(ing._k100!=null&&v)onChange(idx,"__recalc",Number(v)/100);};const handleSelect=food=>{setOpen(false);const qty=Number(ing.qty)||100;onChange(idx,"__fill",{food,qty});setFlash(true);setTimeout(()=>setFlash(false),900);};return(<>{open&&<tr><td colSpan={9} style={{padding:"4px 0 10px"}}><FoodSearch onSelect={handleSelect} onClose={()=>setOpen(false)}/></td></tr>}<tr className={flash?"flash-row":""}><td style={{minWidth:160}}><div className="f g8 ac"><input className={"ii"+(ing._auto?" auto":"")} style={{flex:1}} value={ing.name} placeholder="Ingrediente" onChange={e=>set("name",e.target.value)}/><button onClick={()=>setOpen(o=>!o)} style={{background:open?"var(--sage-dk)":"var(--info)",color:"#fff",border:"none",borderRadius:6,padding:"5px 8px",cursor:"pointer",fontSize:11,flexShrink:0,fontWeight:700}} title="Buscar en base de datos">{open?"✕":"🔍"}</button></div></td><td style={{width:62}}><input className="ii" type="number" value={ing.qty} placeholder="100" onChange={e=>handleQty(e.target.value)}/></td><td style={{width:76}}><select className="ii" value={ing.unit} onChange={e=>set("unit",e.target.value)}><option>g</option><option>ml</option><option>ud</option><option>cucharada</option><option>taza</option></select></td>{["kcal","prot","carbs","fat"].map(k=><td key={k} style={{width:58}}><input className={"ii"+(ing._auto?" auto":"")} type="number" value={ing[k]} placeholder="0" onChange={e=>{set(k,e.target.value);set("_auto",false);set("_k100",null);}}/></td>)}<td style={{width:26,textAlign:"center"}}>{ing._auto?<span style={{fontSize:11,color:"var(--sage-dk)"}}>✓</span>:<span style={{color:"#ddd"}}>—</span>}</td><td style={{width:28}}><button style={{background:"none",border:"none",color:"var(--danger)",cursor:"pointer",fontSize:13,padding:"3px"}} onClick={()=>onRemove(idx)}>🗑</button></td></tr></>);}
+
+function IngRow({ing,idx,onChange,onRemove}){
+  const [open, setOpen] = useState(false);          // full FoodSearch panel
+  const [flash, setFlash] = useState(false);
+  const [sugg, setSugg] = useState([]);              // inline suggestions
+  const [showSugg, setShowSugg] = useState(false);
+  const [acIdx, setAcIdx] = useState(-1);            // keyboard nav
+  const blurTimer = useRef(null);
+
+  const set = (k,v) => onChange(idx, k, v);
+
+  const handleQty = v => {
+    set("qty", v);
+    if (ing._k100 != null && v) onChange(idx, "__recalc", Number(v) / 100);
+  };
+
+  const handleSelect = food => {
+    setOpen(false);
+    const qty = Number(ing.qty) || 100;
+    onChange(idx, "__fill", { food, qty });
+    setFlash(true); setTimeout(() => setFlash(false), 900);
+  };
+
+  // Inline autocomplete on name change
+  const handleNameChange = v => {
+    set("name", v);
+    if (v.length >= 2) {
+      const found = searchLocal(v);
+      setSugg(found.slice(0, 6));
+      setShowSugg(found.length > 0);
+      setAcIdx(-1);
+    } else {
+      setSugg([]); setShowSugg(false);
+    }
+  };
+
+  const pickSugg = (food) => {
+    setShowSugg(false); setSugg([]);
+    const qty = Number(ing.qty) || 100;
+    onChange(idx, "__fill", { food, qty });
+    setFlash(true); setTimeout(() => setFlash(false), 900);
+  };
+
+  const handleKeyDown = e => {
+    if (!showSugg) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setAcIdx(i => Math.min(i+1, sugg.length-1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setAcIdx(i => Math.max(i-1, -1)); }
+    else if (e.key === "Enter" && acIdx >= 0) { e.preventDefault(); pickSugg(sugg[acIdx]); }
+    else if (e.key === "Escape") { setShowSugg(false); }
+  };
+
+  const onBlur = () => { blurTimer.current = setTimeout(() => setShowSugg(false), 150); };
+  const onFocus = () => { clearTimeout(blurTimer.current); if (ing.name.length >= 2 && sugg.length) setShowSugg(true); };
+
+  return (
+    <>
+      {open && (
+        <tr><td colSpan={9} style={{padding:"4px 0 10px"}}>
+          <FoodSearch onSelect={handleSelect} onClose={()=>setOpen(false)}/>
+        </td></tr>
+      )}
+      <tr className={flash ? "flash-row" : ""}>
+        <td style={{minWidth:180, position:"relative"}}>
+          <div className="f g8 ac">
+            <div className="ac-wrap">
+              <input
+                className={"ii" + (ing._auto ? " auto" : "")}
+                style={{width:"100%"}}
+                value={ing.name}
+                placeholder="Ingrediente"
+                onChange={e => handleNameChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onFocus={onFocus}
+                onBlur={onBlur}
+              />
+              {showSugg && sugg.length > 0 && (
+                <div className="ac-drop">
+                  {sugg.map((f, si) => (
+                    <div
+                      key={si}
+                      className={"ac-item" + (acIdx === si ? " active" : "")}
+                      onMouseDown={e => { e.preventDefault(); pickSugg(f); }}
+                    >
+                      <div className="ac-name">{f.name}</div>
+                      <div className="ac-macros">
+                        <span><b>{f.kcal100}</b>kcal</span>
+                        <span><b>{f.prot100}g</b>P</span>
+                        <span><b>{f.carbs100}g</b>HC</span>
+                        <span><b>{f.fat100}g</b>G</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setOpen(o => !o)}
+              style={{background:open?"var(--sage-dk)":"var(--info)",color:"#fff",border:"none",borderRadius:6,padding:"5px 8px",cursor:"pointer",fontSize:11,flexShrink:0,fontWeight:700}}
+              title="Búsqueda avanzada + escáner"
+            >{open ? "✕" : "🔍"}</button>
+          </div>
+          {ing._dbName && !showSugg && (
+            <div style={{fontSize:9,color:"var(--sage-dk)",marginTop:2,paddingLeft:2}}>
+              ✓ {ing._dbName}
+            </div>
+          )}
+        </td>
+        <td style={{width:62}}>
+          <input className="ii" type="number" value={ing.qty} placeholder="100" onChange={e=>handleQty(e.target.value)}/>
+        </td>
+        <td style={{width:82}}>
+          <select className="ii" value={ing.unit} onChange={e=>set("unit",e.target.value)}>
+            <option value="g">g</option>
+            <option value="ml">ml</option>
+            <option value="ud">ud</option>
+            <option value="cucharada">cuch.</option>
+            <option value="cucharadita">cuch.ta</option>
+            <option value="taza">taza</option>
+            <option value="kg">kg</option>
+            <option value="l">l</option>
+          </select>
+        </td>
+        {["kcal","prot","carbs","fat"].map(k=>(
+          <td key={k} style={{width:58}}>
+            <input className={"ii"+(ing._auto?" auto":"")} type="number" value={ing[k]} placeholder="0"
+              onChange={e=>{set(k,e.target.value);set("_auto",false);set("_k100",null);}}/>
+          </td>
+        ))}
+        <td style={{width:26,textAlign:"center"}}>
+          {ing._auto
+            ? <span style={{fontSize:13,color:"var(--sage-dk)"}} title="Macros calculados automáticamente">✓</span>
+            : <span style={{color:"#ddd"}}>—</span>}
+        </td>
+        <td style={{width:28}}>
+          <button style={{background:"none",border:"none",color:"var(--danger)",cursor:"pointer",fontSize:13,padding:"3px"}} onClick={()=>onRemove(idx)}>🗑</button>
+        </td>
+      </tr>
+    </>
+  );
+}
 
 /* ─── IMAGE UPLOAD ────────────────────────────────────────────────────────── */
 function ImgUpload({value,onChange,label="Imagen del plato"}){
@@ -1753,53 +1997,191 @@ function ImgUpload({value,onChange,label="Imagen del plato"}){
 
 /* ─── RECIPE FORM ─────────────────────────────────────────────────────────── */
 function RecipeForm({recipe,onSave,onClose,showToast}){
-  const[form,setForm]=useState(()=>recipe?{...recipe,ingredients:recipe.ingredients.map(i=>({...blankIng(),...i}))}:{name:"",portions:1,categoria:"",origen:"",dificultad:"",instructions:"",image:"",ingredients:[blankIng()]});
-  const[ingMode,setIngMode]=useState("search");
-  const[pasteText,setPasteText]=useState("");const[urlInput,setUrlInput]=useState("");const[urlLoading,setUrlLoad]=useState(false);
+  const[form,setForm]=useState(()=>recipe
+    ?{...recipe,ingredients:recipe.ingredients.map(i=>({...blankIng(),...i}))}
+    :{name:"",portions:1,categoria:"",origen:"",dificultad:"",instructions:"",image:"",ingredients:[blankIng()]}
+  );
+  const[ingMode,setIngMode]=useState("search"); // "search" | "paste"
+  const[pasteText,setPasteText]=useState("");
+
   const sf=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const onChange=(idx,key,val)=>{setForm(f=>{const ings=[...f.ingredients];if(key==="__fill"){const{food,qty}=val;const r=qty/100;ings[idx]={...ings[idx],name:food.name,qty,unit:"g",kcal:Math.round(food.kcal100*r),prot:Math.round(food.prot100*r*10)/10,carbs:Math.round(food.carbs100*r*10)/10,fat:Math.round(food.fat100*r*10)/10,_auto:true,_k100:food.kcal100,_p100:food.prot100,_c100:food.carbs100,_f100:food.fat100};}else if(key==="__recalc"){const r=val;if(ings[idx]._k100==null)return f;ings[idx]={...ings[idx],kcal:Math.round(ings[idx]._k100*r),prot:Math.round(ings[idx]._p100*r*10)/10,carbs:Math.round(ings[idx]._c100*r*10)/10,fat:Math.round(ings[idx]._f100*r*10)/10};}else{ings[idx]={...ings[idx],[key]:val};}return{...f,ingredients:ings};});};
-  const applyPaste=()=>{if(!pasteText.trim())return;const parsed=parsePasted(pasteText);setForm(f=>({...f,ingredients:[...f.ingredients.filter(i=>i.name.trim()),...parsed]}));setPasteText("");showToast(parsed.length+" ingredientes añadidos");setIngMode("search");};
-  const applyURL=async()=>{if(!urlInput.trim())return;setUrlLoad(true);try{const result=await importURL(urlInput);if(result.ingredients.length){setForm(f=>({...f,name:f.name||result.title,ingredients:[...f.ingredients.filter(i=>i.name.trim()),...result.ingredients]}));showToast(result.ingredients.length+" ingredientes importados");setUrlInput("");setIngMode("search");}else showToast("No se encontraron ingredientes","error");}catch(e){showToast(e.message||"Error","error");}setUrlLoad(false);};
+
+  const onChange=(idx,key,val)=>{setForm(f=>{
+    const ings=[...f.ingredients];
+    if(key==="__fill"){
+      const{food,qty}=val; const r=qty/100;
+      ings[idx]={...ings[idx],name:food.name,qty,unit:"g",
+        kcal:Math.round(food.kcal100*r),
+        prot:Math.round(food.prot100*r*10)/10,
+        carbs:Math.round(food.carbs100*r*10)/10,
+        fat:Math.round(food.fat100*r*10)/10,
+        _auto:true,_k100:food.kcal100,_p100:food.prot100,_c100:food.carbs100,_f100:food.fat100,
+        _dbName:food.name};
+    } else if(key==="__recalc"){
+      const r=val; if(ings[idx]._k100==null)return f;
+      ings[idx]={...ings[idx],
+        kcal:Math.round(ings[idx]._k100*r),
+        prot:Math.round(ings[idx]._p100*r*10)/10,
+        carbs:Math.round(ings[idx]._c100*r*10)/10,
+        fat:Math.round(ings[idx]._f100*r*10)/10};
+    } else {
+      ings[idx]={...ings[idx],[key]:val};
+    }
+    return{...f,ingredients:ings};
+  });};
+
+  // Live parse preview from paste text
+  const pastePreview = useMemo(() => {
+    if (!pasteText.trim()) return [];
+    return parsePasted(pasteText);
+  }, [pasteText]);
+
+  const matchedCount = pastePreview.filter(p=>p._auto).length;
+  const unmatchedCount = pastePreview.length - matchedCount;
+
+  const applyPaste = () => {
+    if (!pastePreview.length) return;
+    setForm(f=>({...f, ingredients:[...f.ingredients.filter(i=>i.name.trim()), ...pastePreview]}));
+    setPasteText("");
+    setIngMode("search");
+    showToast(`${pastePreview.length} ingredientes añadidos · ${matchedCount} con macros ✓`);
+  };
+
   const totals=sumM(form.ingredients.map(i=>({kcal:+i.kcal||0,prot:+i.prot||0,carbs:+i.carbs||0,fat:+i.fat||0})));
   const por=perP(totals,+form.portions||1);
   const save=()=>{if(!form.name.trim())return showToast("Añade un nombre","error");onSave({...form,id:form.id||Date.now(),portions:+form.portions||1});};
-  return(<div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}><div className="mo">
-    <div className="mo-hd"><h3>{recipe?"✏️ Editar receta":"✨ Nueva receta"}</h3><button className="mo-x" onClick={onClose}>✕</button></div>
 
-    <div className="f2 mb20">
-      <div>
-        <div className="fg" style={{marginBottom:12}}><label className="fl">Nombre *</label><input className="fi" value={form.name} onChange={e=>sf("name",e.target.value)} placeholder="Nombre de la receta"/></div>
-        <div className="f3">
-          <div className="fg"><label className="fl">Raciones</label><input className="fi" type="number" min="1" value={form.portions} onChange={e=>sf("portions",e.target.value)}/></div>
-          <div className="fg"><label className="fl">Tipo de dieta</label><select className="fs" value={form.categoria||""} onChange={e=>sf("categoria",e.target.value)}><option value="">— Elegir —</option>{DIETS.map(d=><option key={d}>{d}</option>)}</select></div>
-          <div className="fg"><label className="fl">Dificultad</label><select className="fs" value={form.dificultad||""} onChange={e=>sf("dificultad",e.target.value)}><option value="">— Elegir —</option>{DIFFS.map(d=><option key={d}>{d}</option>)}</select></div>
+  return(
+    <div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}>
+    <div className="mo">
+      <div className="mo-hd"><h3>{recipe?"✏️ Editar receta":"✨ Nueva receta"}</h3><button className="mo-x" onClick={onClose}>✕</button></div>
+
+      <div className="f2 mb20">
+        <div>
+          <div className="fg" style={{marginBottom:12}}><label className="fl">Nombre *</label>
+            <input className="fi" value={form.name} onChange={e=>sf("name",e.target.value)} placeholder="Nombre de la receta"/>
+          </div>
+          <div className="f3">
+            <div className="fg"><label className="fl">Raciones</label><input className="fi" type="number" min="1" value={form.portions} onChange={e=>sf("portions",e.target.value)}/></div>
+            <div className="fg"><label className="fl">Tipo de dieta</label><select className="fs" value={form.categoria||""} onChange={e=>sf("categoria",e.target.value)}><option value="">— Elegir —</option>{DIETS.map(d=><option key={d}>{d}</option>)}</select></div>
+            <div className="fg"><label className="fl">Dificultad</label><select className="fs" value={form.dificultad||""} onChange={e=>sf("dificultad",e.target.value)}><option value="">— Elegir —</option>{DIFFS.map(d=><option key={d}>{d}</option>)}</select></div>
+          </div>
+          <div className="fg"><label className="fl">Origen culinario</label><select className="fs" style={{maxWidth:240}} value={form.origen||""} onChange={e=>sf("origen",e.target.value)}><option value="">— Elegir —</option>{ORIGINS.map(o=><option key={o}>{o}</option>)}</select></div>
         </div>
-        <div className="fg"><label className="fl">Origen culinario</label><select className="fs" style={{maxWidth:240}} value={form.origen||""} onChange={e=>sf("origen",e.target.value)}><option value="">— Elegir —</option>{ORIGINS.map(o=><option key={o}>{o}</option>)}</select></div>
+        <ImgUpload value={form.image} onChange={v=>sf("image",v)}/>
       </div>
-      <ImgUpload value={form.image} onChange={v=>sf("image",v)}/>
-    </div>
 
-    <div className="f ac jb mb16"><h4 style={{fontSize:14}}>🥕 Ingredientes</h4></div>
-    <div className="mode-tabs">
-      <button className={"mode-tab"+(ingMode==="search"?" active":"")} onClick={()=>setIngMode("search")}>🔍 Buscar uno a uno</button>
-      <button className={"mode-tab"+(ingMode==="paste"?" active":"")} onClick={()=>setIngMode("paste")}>📋 Pegar lista</button>
-      <button className={"mode-tab"+(ingMode==="url"?" active":"")} onClick={()=>setIngMode("url")}>🌐 Importar URL</button>
-    </div>
-    {ingMode==="paste"&&<div style={{marginBottom:16}}><div className="fg"><label className="fl">Pega tu lista (una línea por ingrediente)</label><textarea className="fta" style={{minHeight:110,fontFamily:"monospace",fontSize:12}} value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder={"200g pechuga de pollo\n2 huevos\n100 ml leche\n1 cucharada de aceite"}/></div><div style={{fontSize:11,color:"var(--mid)",marginBottom:10}}>Formatos: "200g pollo", "2 huevos", "100 ml leche"</div><div className="f g8"><button className="btn btn-p btn-sm" onClick={applyPaste} disabled={!pasteText.trim()}>✓ Añadir</button><button className="btn btn-g btn-sm" onClick={()=>setIngMode("search")}>Cancelar</button></div></div>}
-    {ingMode==="url"&&<div style={{marginBottom:16}}><div className="fg"><label className="fl">URL de la receta</label><input className="fi" value={urlInput} onChange={e=>setUrlInput(e.target.value)} placeholder="https://www.recetasgratis.net/..."/></div><div style={{fontSize:11,color:"var(--mid)",marginBottom:10}}>Funciona con RecetasGratis, Directo al Paladar, Allrecipes y otros sitios con formato estándar.</div><div className="f g8 ac"><button className="btn btn-u btn-sm" onClick={applyURL} disabled={!urlInput.trim()||urlLoading}>{urlLoading?<><div className="sp2"/>Importando...</>:"🌐 Importar"}</button><button className="btn btn-g btn-sm" onClick={()=>setIngMode("search")}>Cancelar</button></div></div>}
+      {/* ── Ingredient mode tabs (2 tabs only) ── */}
+      <div className="f ac jb mb16">
+        <h4 style={{fontSize:14}}>🥕 Ingredientes</h4>
+        <div style={{fontSize:11,color:"var(--mid)"}}>
+          {form.ingredients.filter(i=>i.name.trim()).length} ingrediente(s) · {Math.round(totals.kcal)} kcal totales
+        </div>
+      </div>
+      <div className="mode-tabs" style={{maxWidth:360}}>
+        <button className={"mode-tab"+(ingMode==="search"?" active":"")} onClick={()=>setIngMode("search")}>✏️ Uno a uno</button>
+        <button className={"mode-tab"+(ingMode==="paste"?" active":"")} onClick={()=>setIngMode("paste")}>📋 Pegar lista</button>
+      </div>
 
-    <div style={{overflowX:"auto",marginTop:8}}>
-      <table className="it" style={{minWidth:580}}>
-        <thead><tr><th>Ingrediente</th><th>Cant.</th><th>Unidad</th><th>Kcal</th><th>Prot(g)</th><th>HC(g)</th><th>Grasa(g)</th><th></th><th></th></tr></thead>
-        <tbody>{form.ingredients.map((ing,i)=><IngRow key={ing.id} ing={ing} idx={i} onChange={onChange} onRemove={i=>setForm(f=>({...f,ingredients:f.ingredients.filter((_,j)=>j!==i)}))}/>)}</tbody>
-        <tfoot><tr><td colSpan={3}>Total receta</td><td>{Math.round(totals.kcal)} kcal</td><td>{Math.round(totals.prot)}g</td><td>{Math.round(totals.carbs)}g</td><td>{Math.round(totals.fat)}g</td><td colSpan={2}></td></tr><tr><td colSpan={3} style={{color:"var(--mid)",fontWeight:500}}>Por ración</td><td style={{color:"var(--mid)"}}>{por.kcal} kcal</td><td style={{color:"var(--mid)"}}>{por.prot}g</td><td style={{color:"var(--mid)"}}>{por.carbs}g</td><td style={{color:"var(--mid)"}}>{por.fat}g</td><td colSpan={2}></td></tr></tfoot>
-      </table>
+      {/* ── PASTE MODE ── */}
+      {ingMode==="paste" && (
+        <div style={{marginBottom:20,background:"var(--cream)",borderRadius:"var(--rs)",padding:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--char)",marginBottom:8}}>
+            📋 Pega tu lista de ingredientes
+          </div>
+          <div style={{fontSize:11,color:"var(--mid)",marginBottom:10,lineHeight:1.7}}>
+            Acepta cualquier formato: <code style={{background:"#fff",padding:"1px 5px",borderRadius:4}}>125 g de harina</code> · <code style={{background:"#fff",padding:"1px 5px",borderRadius:4}}>* 2 huevos</code> · <code style={{background:"#fff",padding:"1px 5px",borderRadius:4}}>1 cucharada de aceite</code><br/>
+            Los macros se rellenan automáticamente si el alimento está en nuestra base de datos.
+          </div>
+          <textarea
+            className="fta"
+            style={{minHeight:120,fontFamily:"monospace",fontSize:12,marginBottom:10}}
+            value={pasteText}
+            onChange={e=>setPasteText(e.target.value)}
+            placeholder={"125 g de harina de trigo\n* 1 huevo\n* 10 g de semillas de matalauva\n* 35 ml de licor de anís\n* 25 g de manteca de cerdo\n* 60 g de azúcar\n* Ralladura de un limón"}
+            autoFocus
+          />
+
+          {/* Live preview */}
+          {pastePreview.length > 0 && (
+            <>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,fontSize:11,flexWrap:"wrap"}}>
+                <span style={{fontWeight:700,color:"var(--char)"}}>Vista previa — {pastePreview.length} ingrediente(s)</span>
+                {matchedCount > 0 && <span style={{color:"var(--sage-dk)",fontWeight:600}}>✓ {matchedCount} con macros</span>}
+                {unmatchedCount > 0 && <span style={{color:"var(--terra)",fontWeight:600}}>⚠ {unmatchedCount} sin datos (añade manualmente)</span>}
+              </div>
+              <div className="paste-preview">
+                {pastePreview.map((p,i) => (
+                  <div key={i} className={"paste-prev-row " + (p._auto ? "matched" : "unmatched")}>
+                    <div className={"paste-dot " + (p._auto ? "ok" : "warn")}/>
+                    <span className="paste-ing-name">{p.name}</span>
+                    <span className="paste-ing-qty">{p.qty} {p.unit}</span>
+                    {p._auto
+                      ? <span className="paste-ing-db">↳ {p._dbName} · {p.kcal}kcal</span>
+                      : <span style={{fontSize:10,color:"var(--terra)",marginLeft:"auto",fontStyle:"italic"}}>sin datos</span>}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="f g8" style={{marginTop:12}}>
+            <button className="btn btn-p btn-sm" disabled={!pastePreview.length} onClick={applyPaste}>
+              ✓ Añadir {pastePreview.length > 0 ? pastePreview.length + " ingredientes" : ""}
+            </button>
+            <button className="btn btn-g btn-sm" onClick={()=>{setPasteText("");setIngMode("search");}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Ingredients table (always visible) ── */}
+      <div style={{overflowX:"auto",marginTop:ingMode==="paste"?0:8}}>
+        <table className="it" style={{minWidth:580}}>
+          <thead>
+            <tr>
+              <th>Ingrediente <span style={{fontWeight:400,color:"var(--sage-lt)",fontSize:9}}>↓ escribe para buscar</span></th>
+              <th>Cant.</th><th>Unidad</th><th>Kcal</th><th>Prot(g)</th><th>HC(g)</th><th>Grasa(g)</th>
+              <th style={{fontSize:9}}>BD</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {form.ingredients.map((ing,i)=>(
+              <IngRow key={ing.id} ing={ing} idx={i} onChange={onChange}
+                onRemove={i=>setForm(f=>({...f,ingredients:f.ingredients.filter((_,j)=>j!==i)}))}/>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={3}>Total receta</td>
+              <td>{Math.round(totals.kcal)} kcal</td><td>{Math.round(totals.prot)}g</td>
+              <td>{Math.round(totals.carbs)}g</td><td>{Math.round(totals.fat)}g</td><td colSpan={2}></td>
+            </tr>
+            <tr>
+              <td colSpan={3} style={{color:"var(--mid)",fontWeight:500}}>Por ración</td>
+              <td style={{color:"var(--mid)"}}>{por.kcal} kcal</td>
+              <td style={{color:"var(--mid)"}}>{por.prot}g</td>
+              <td style={{color:"var(--mid)"}}>{por.carbs}g</td>
+              <td style={{color:"var(--mid)"}}>{por.fat}g</td>
+              <td colSpan={2}></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <button className="btn btn-o btn-sm mt10" onClick={()=>setForm(f=>({...f,ingredients:[...f.ingredients,blankIng()]}))}>+ Añadir fila</button>
+
+      <div className="div"/>
+      <div className="fg">
+        <label className="fl">Elaboración / Instrucciones</label>
+        <textarea className="fta" style={{minHeight:100}} value={form.instructions} onChange={e=>sf("instructions",e.target.value)} placeholder="Describe los pasos de preparación..."/>
+      </div>
+      <div className="f g8" style={{justifyContent:"flex-end"}}>
+        <button className="btn btn-g" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-p" onClick={save}>💾 Guardar receta</button>
+      </div>
     </div>
-    <button className="btn btn-o btn-sm mt10" onClick={()=>setForm(f=>({...f,ingredients:[...f.ingredients,blankIng()]}))}>+ Añadir fila</button>
-    <div className="div"/>
-    <div className="fg"><label className="fl">Elaboración / Instrucciones</label><textarea className="fta" style={{minHeight:100}} value={form.instructions} onChange={e=>sf("instructions",e.target.value)} placeholder="Describe los pasos de preparación..."/></div>
-    <div className="f g8" style={{justifyContent:"flex-end"}}><button className="btn btn-g" onClick={onClose}>Cancelar</button><button className="btn btn-p" onClick={save}>💾 Guardar receta</button></div>
-  </div></div>);}
+    </div>
+  );
+}
 
 /* ─── RECIPE DETAIL ───────────────────────────────────────────────────────── */
 function RecipeDetail({recipe,onClose,onEdit,onDelete}){
