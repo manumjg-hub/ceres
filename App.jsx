@@ -1,5 +1,444 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { AuthProvider, AuthGate, AccountButton, UpgradeBanner, PricingPage, useAuth } from "./auth.jsx";
+import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+/* ─── SUPABASE CLIENT ────────────────────────────────────────────────────── */
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
+
+/* ─── ADMIN CONFIG ───────────────────────────────────────────────────────── */
+// Tu email de administrador — tiene acceso completo sin necesidad de suscripción
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || "";
+
+/* ─── AUTH CONTEXT ───────────────────────────────────────────────────────── */
+const AuthContext = createContext(null);
+
+function AuthProvider({ children }) {
+  const [user, setUser]           = useState(null);
+  const [profile, setProfile]     = useState(null);   // subscription info
+  const [authReady, setAuthReady] = useState(false);
+
+  const loadProfile = async (uid) => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", uid)
+      .single();
+    setProfile(data || null);
+  };
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) loadProfile(session.user.id);
+      setAuthReady(true);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) loadProfile(session.user.id);
+      else setProfile(null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const refreshProfile = () => user && loadProfile(user.id);
+
+  return (
+    <AuthContext.Provider value={{ user, profile, authReady, refreshProfile, supabase, isAdmin: user?.email === ADMIN_EMAIL }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+const useAuth = () => useContext(AuthContext);
+// Helper: is the current user the admin?
+const useIsAdmin = () => { const { user } = useAuth(); return user?.email === ADMIN_EMAIL; };
+
+/* ─── STRIPE HELPERS ─────────────────────────────────────────────────────── */
+const PLANS = [
+  {
+    id: "basic",
+    name: "Básico",
+    price: 29,
+    priceId: import.meta.env.VITE_STRIPE_PRICE_BASIC,
+    color: "#4caf88",
+    icon: "🌱",
+    features: [
+      "Gestión ilimitada de pacientes",
+      "Planificador semanal",
+      "Lista de compra automática",
+      "PDF menú + recetas",
+      "Cuestionario personalizable",
+      "Historial de peso y seguimiento",
+    ],
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    price: 59,
+    priceId: import.meta.env.VITE_STRIPE_PRICE_PRO,
+    color: "#3a7ab5",
+    icon: "⭐",
+    popular: true,
+    features: [
+      "Todo lo del plan Básico",
+      "Composición corporal (masa magra, grasa visceral…)",
+      "Editor de dieta por paciente",
+      "Plantillas reutilizables ilimitadas",
+      "Dashboard de facturación",
+      "Módulo de suscripciones de pacientes",
+      "Acceso prioritario a nuevas funciones",
+    ],
+  },
+];
+
+async function startCheckout(priceId, userId, email) {
+  const res = await fetch("/api/create-checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ priceId, userId, email }),
+  });
+  const data = await res.json();
+  if (data.url) window.location.href = data.url;
+  else throw new Error(data.error || "Error al crear sesión de pago");
+}
+
+async function openCustomerPortal(userId) {
+  const res = await fetch("/api/customer-portal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId }),
+  });
+  const data = await res.json();
+  if (data.url) window.location.href = data.url;
+  else throw new Error(data.error || "Error al abrir portal");
+}
+
+/* ─── AUTH PAGE (login / register) ──────────────────────────────────────── */
+function AuthPage() {
+  const { supabase } = useAuth();
+  const [mode, setMode]       = useState("login");      // "login" | "register" | "forgot"
+  const [email, setEmail]     = useState("");
+  const [password, setPass]   = useState("");
+  const [name, setName]       = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+  const [msg, setMsg]         = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(""); setMsg(""); setLoading(true);
+    try {
+      if (mode === "login") {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      } else if (mode === "register") {
+        const { error } = await supabase.auth.signUp({
+          email, password,
+          options: { data: { full_name: name } },
+        });
+        if (error) throw error;
+        setMsg("Revisa tu email para confirmar la cuenta.");
+      } else {
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        if (error) throw error;
+        setMsg("Email de recuperación enviado. Revisa tu bandeja.");
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"var(--cream)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{width:"100%",maxWidth:420}}>
+        {/* Logo */}
+        <div style={{textAlign:"center",marginBottom:36}}>
+          <div style={{fontSize:48,marginBottom:12}}>🌿</div>
+          <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"var(--sage-dk)",margin:0}}>NutriPlanner</h1>
+          <span style={{color:"var(--terra)",fontSize:11,fontWeight:700,letterSpacing:".14em",textTransform:"uppercase"}}>Pro</span>
+          <p style={{color:"var(--mid)",fontSize:13,marginTop:8}}>La plataforma profesional para nutricionistas</p>
+        </div>
+
+        {/* Card */}
+        <div style={{background:"#fff",borderRadius:"var(--r)",boxShadow:"var(--sh-lg)",padding:32}}>
+          <h3 style={{fontSize:20,marginBottom:20,textAlign:"center"}}>
+            {mode === "login" ? "Iniciar sesión" : mode === "register" ? "Crear cuenta" : "Recuperar contraseña"}
+          </h3>
+
+          {error && <div style={{background:"rgba(192,83,83,.1)",color:"var(--danger)",borderRadius:"var(--rs)",padding:"10px 14px",fontSize:13,marginBottom:16}}>{error}</div>}
+          {msg   && <div style={{background:"rgba(92,122,92,.1)",color:"var(--sage-dk)",borderRadius:"var(--rs)",padding:"10px 14px",fontSize:13,marginBottom:16}}>{msg}</div>}
+
+          <form onSubmit={submit}>
+            {mode === "register" && (
+              <div className="fg">
+                <label className="fl">Nombre completo</label>
+                <input className="fi" value={name} onChange={e=>setName(e.target.value)} placeholder="Dra. María García" required/>
+              </div>
+            )}
+            <div className="fg">
+              <label className="fl">Email</label>
+              <input className="fi" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@email.com" required autoFocus/>
+            </div>
+            {mode !== "forgot" && (
+              <div className="fg">
+                <label className="fl">Contraseña</label>
+                <input className="fi" type="password" value={password} onChange={e=>setPass(e.target.value)} placeholder="Mínimo 8 caracteres" required minLength={8}/>
+              </div>
+            )}
+            <button type="submit" className="btn btn-i" style={{width:"100%",justifyContent:"center",marginTop:4}} disabled={loading}>
+              {loading ? <><div className="sp2"/>Cargando...</> :
+               mode === "login" ? "Entrar" : mode === "register" ? "Crear cuenta" : "Enviar email"}
+            </button>
+          </form>
+
+          <div style={{textAlign:"center",marginTop:20,fontSize:13,color:"var(--mid)"}}>
+            {mode === "login" && <>
+              <span>¿No tienes cuenta? </span>
+              <button className="btn btn-g btn-sm" onClick={()=>{setMode("register");setError("");}}>Regístrate gratis</button>
+              <br/><button className="btn btn-g btn-sm" style={{marginTop:6}} onClick={()=>{setMode("forgot");setError("");}}>Olvidé mi contraseña</button>
+            </>}
+            {mode !== "login" && (
+              <button className="btn btn-g btn-sm" onClick={()=>{setMode("login");setError("");}}>← Volver al login</button>
+            )}
+          </div>
+        </div>
+
+        <p style={{textAlign:"center",fontSize:11,color:"var(--mid)",marginTop:20,lineHeight:1.6}}>
+          Al registrarte aceptas los términos de uso. El primer mes es gratuito, cancela cuando quieras.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ─── PRICING PAGE ───────────────────────────────────────────────────────── */
+function PricingPage() {
+  const { user, profile, refreshProfile } = useAuth();
+  const [loading, setLoading] = useState(null);    // plan id being loaded
+  const [error, setError]     = useState("");
+
+  // Handle /success redirect from Stripe
+  useEffect(() => {
+    if (window.location.pathname === "/success" || window.location.search.includes("session_id")) {
+      // Give webhook a moment, then refresh
+      const t = setTimeout(() => {
+        refreshProfile();
+        window.history.replaceState({}, "", "/");
+      }, 2500);
+      return () => clearTimeout(t);
+    }
+  }, []);
+
+  const subscribe = async (plan) => {
+    if (!plan.priceId) {
+      setError("Price ID no configurado — revisa las variables de entorno.");
+      return;
+    }
+    setLoading(plan.id); setError("");
+    try {
+      await startCheckout(plan.priceId, user.id, user.email);
+    } catch (err) {
+      setError(err.message);
+    }
+    setLoading(null);
+  };
+
+  const isSuccess = window.location.pathname === "/success" || window.location.search.includes("session_id");
+
+  return (
+    <div style={{minHeight:"100vh",background:"var(--cream)",padding:"48px 24px"}}>
+      {/* Header */}
+      <div style={{textAlign:"center",maxWidth:600,margin:"0 auto 48px"}}>
+        {isSuccess
+          ? <><div style={{fontSize:60,marginBottom:16}}>🎉</div>
+              <h2 style={{fontSize:28,color:"var(--sage-dk)",marginBottom:8}}>¡Pago completado!</h2>
+              <p style={{color:"var(--mid)",fontSize:15}}>Activando tu suscripción… Espera un momento.</p>
+              <div className="sp2 sp2-dk" style={{display:"inline-block",marginTop:16,width:24,height:24}}/>
+            </>
+          : <><div style={{fontSize:48,marginBottom:16}}>🌿</div>
+              <h2 style={{fontSize:32,color:"var(--sage-dk)",marginBottom:8}}>Elige tu plan</h2>
+              <p style={{color:"var(--mid)",fontSize:15,lineHeight:1.6}}>
+                Hola <b>{user.email}</b>. Activa tu suscripción para acceder a NutriPlanner Pro.
+              </p>
+            </>}
+      </div>
+
+      {error && <div style={{maxWidth:600,margin:"0 auto 24px",background:"rgba(192,83,83,.1)",color:"var(--danger)",borderRadius:"var(--rs)",padding:"12px 16px",fontSize:13}}>{error}</div>}
+
+      {/* Plan cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:24,maxWidth:680,margin:"0 auto 48px"}}>
+        {PLANS.map(plan => (
+          <div key={plan.id} style={{
+            background:"#fff",borderRadius:"var(--r)",
+            boxShadow: plan.popular ? "0 8px 40px rgba(58,122,181,.25)" : "var(--sh)",
+            border: plan.popular ? `2px solid ${plan.color}` : "2px solid transparent",
+            overflow:"hidden",position:"relative",
+          }}>
+            {plan.popular && (
+              <div style={{background:plan.color,color:"#fff",textAlign:"center",padding:"6px",fontSize:11,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase"}}>
+                ⭐ Más popular
+              </div>
+            )}
+            <div style={{padding:"28px 28px 24px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                <span style={{fontSize:28}}>{plan.icon}</span>
+                <div>
+                  <div style={{fontWeight:700,fontSize:18,color:"var(--char)"}}>{plan.name}</div>
+                  <div style={{fontSize:11,color:"var(--mid)",textTransform:"uppercase",letterSpacing:".06em"}}>Plan mensual</div>
+                </div>
+              </div>
+              <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:20}}>
+                <span style={{fontFamily:"'Playfair Display',serif",fontSize:40,fontWeight:700,color:plan.color}}>{plan.price}€</span>
+                <span style={{fontSize:13,color:"var(--mid)"}}>/mes</span>
+              </div>
+              <ul style={{listStyle:"none",padding:0,margin:0,marginBottom:24,display:"flex",flexDirection:"column",gap:9}}>
+                {plan.features.map((f,i) => (
+                  <li key={i} style={{display:"flex",gap:9,alignItems:"flex-start",fontSize:13}}>
+                    <span style={{color:plan.color,flexShrink:0,marginTop:1}}>✓</span>
+                    <span style={{color:"var(--char)",lineHeight:1.4}}>{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <button
+                className="btn"
+                style={{width:"100%",justifyContent:"center",background:plan.color,color:"#fff",fontSize:14,padding:"12px",border:"none"}}
+                disabled={loading === plan.id}
+                onClick={() => subscribe(plan)}
+              >
+                {loading === plan.id
+                  ? <><div className="sp2" style={{borderTopColor:"#fff",borderColor:"rgba(255,255,255,.3)"}}/>Redirigiendo...</>
+                  : `Activar plan ${plan.name}`}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Footer trust */}
+      <div style={{textAlign:"center",fontSize:12,color:"var(--mid)",lineHeight:1.8}}>
+        🔒 Pago seguro con Stripe · Cancela en cualquier momento · Sin permanencia<br/>
+        <button className="btn btn-g btn-sm" style={{marginTop:10}} onClick={()=>supabase.auth.signOut()}>
+          Cerrar sesión
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── ACCOUNT MODAL ──────────────────────────────────────────────────────── */
+function AccountModal({ onClose }) {
+  const { user, profile, refreshProfile, supabase } = useAuth();
+  const [portalLoading, setPortalLoading] = useState(false);
+
+  const { isAdmin } = useAuth();
+  const plan = PLANS.find(p => p.name === profile?.plan);
+  const status = profile?.subscription_status;
+  const periodEnd = profile?.plan_period_end
+    ? new Date(profile.plan_period_end).toLocaleDateString("es-ES", {day:"2-digit",month:"long",year:"numeric"})
+    : null;
+
+  const openPortal = async () => {
+    setPortalLoading(true);
+    try { await openCustomerPortal(user.id); }
+    catch (err) { alert(err.message); }
+    setPortalLoading(false);
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    onClose();
+  };
+
+  return (
+    <div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="mo" style={{maxWidth:440}}>
+        <div className="mo-hd">
+          <h3>👤 Mi cuenta</h3>
+          <button className="mo-x" onClick={onClose}>✕</button>
+        </div>
+
+        {/* User info */}
+        <div style={{background:"var(--cream)",borderRadius:"var(--rs)",padding:"14px 16px",marginBottom:20}}>
+          <div style={{fontWeight:700,fontSize:14,marginBottom:3}}>{user.email}</div>
+          <div style={{fontSize:11,color:"var(--mid)"}}>Nutricionista profesional</div>
+        </div>
+
+        {/* Subscription status */}
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--mid)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Suscripción</div>
+          {isAdmin ? (
+            <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",background:"rgba(58,92,58,.08)",border:"1.5px solid rgba(58,92,58,.3)",borderRadius:"var(--rs)"}}>
+              <span style={{fontSize:24}}>👑</span>
+              <div>
+                <div style={{fontWeight:700,fontSize:15,color:"var(--sage-dk)"}}>Administrador</div>
+                <div style={{fontSize:11,color:"var(--mid)"}}>Acceso completo sin suscripción</div>
+              </div>
+              <span style={{marginLeft:"auto",background:"rgba(58,92,58,.15)",color:"var(--sage-dk)",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700}}>Admin</span>
+            </div>
+          ) : status === "active" ? (
+            <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",background:"rgba(76,175,136,.08)",border:"1.5px solid rgba(76,175,136,.3)",borderRadius:"var(--rs)"}}>
+              <span style={{fontSize:24}}>{plan?.icon || "✅"}</span>
+              <div>
+                <div style={{fontWeight:700,fontSize:15,color:plan?.color||"var(--sage-dk)"}}>Plan {profile.plan}</div>
+                {periodEnd && <div style={{fontSize:11,color:"var(--mid)"}}>Próxima facturación: {periodEnd}</div>}
+              </div>
+              <span style={{marginLeft:"auto",background:"rgba(76,175,136,.2)",color:"#2a7a56",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700}}>Activo</span>
+            </div>
+          ) : status === "past_due" ? (
+            <div style={{padding:"14px 16px",background:"rgba(192,83,83,.08)",border:"1.5px solid rgba(192,83,83,.3)",borderRadius:"var(--rs)",fontSize:13,color:"var(--danger)"}}>
+              ⚠️ Pago pendiente — Actualiza tu método de pago para evitar la interrupción del servicio.
+            </div>
+          ) : (
+            <div style={{fontSize:13,color:"var(--mid)"}}>Sin suscripción activa.</div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {!isAdmin && (status === "active" || status === "past_due") && (
+            <button className="btn btn-o" style={{justifyContent:"center"}} disabled={portalLoading} onClick={openPortal}>
+              {portalLoading ? <><div className="sp2 sp2-dk"/>Abriendo...</> : "⚙️ Gestionar suscripción (Stripe)"}
+            </button>
+          )}
+          <button className="btn btn-g" style={{justifyContent:"center",color:"var(--danger)"}} onClick={logout}>
+            🚪 Cerrar sesión
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── SUBSCRIPTION GATE ──────────────────────────────────────────────────── */
+function SubscriptionGate({ children }) {
+  const { user, profile } = useAuth();
+  // Admin bypasses subscription check completely
+  if (user?.email === ADMIN_EMAIL) return children;
+  if (profile?.subscription_status === "active") return children;
+  return <PricingPage />;
+}
+
+/* ─── AUTH GATE ──────────────────────────────────────────────────────────── */
+function AuthGate({ children }) {
+  const { user, authReady } = useAuth();
+  if (!authReady) {
+    return (
+      <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--cream)"}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:48,marginBottom:16}}>🌿</div>
+          <div className="sp2 sp2-dk" style={{display:"inline-block",width:28,height:28}}/>
+        </div>
+      </div>
+    );
+  }
+  if (!user) return <AuthPage />;
+  return <SubscriptionGate>{children}</SubscriptionGate>;
+}
+
+
 
 /* ─── STYLES ─────────────────────────────────────────────────────────────── */
 const Styles = () => (
@@ -152,6 +591,26 @@ const Styles = () => (
     .profile-logo-box:hover{border-color:var(--sage)}
     .profile-logo-box img{max-height:80px;max-width:180px;object-fit:contain}
     ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--cream-dk);border-radius:8px}
+    /* ── INLINE AUTOCOMPLETE ── */
+    .ac-wrap{position:relative;flex:1}
+    .ac-drop{position:absolute;top:calc(100% + 3px);left:0;right:0;background:#fff;border:1.5px solid var(--sage-lt);border-radius:var(--rs);box-shadow:var(--sh-lg);z-index:300;max-height:200px;overflow-y:auto}
+    .ac-item{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;transition:background .1s;font-size:12px}
+    .ac-item:hover,.ac-item.active{background:var(--cream)}
+    .ac-name{flex:1;font-weight:500;color:var(--char)}
+    .ac-macros{font-size:10px;color:var(--mid);white-space:nowrap;display:flex;gap:6px}
+    .ac-macros b{color:var(--sage-dk)}
+    /* ── PASTE PREVIEW ── */
+    .paste-preview{margin-top:10px;border:1.5px solid var(--cream-dk);border-radius:var(--rs);overflow:hidden}
+    .paste-prev-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--cream);font-size:11px}
+    .paste-prev-row:last-child{border-bottom:none}
+    .paste-prev-row.matched{background:rgba(92,122,92,.04)}
+    .paste-prev-row.unmatched{background:rgba(196,124,59,.04)}
+    .paste-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+    .paste-dot.ok{background:var(--sage)}
+    .paste-dot.warn{background:var(--terra)}
+    .paste-ing-name{flex:1;font-weight:500;color:var(--char)}
+    .paste-ing-qty{color:var(--mid);white-space:nowrap}
+    .paste-ing-db{font-size:10px;color:var(--sage-dk);font-style:italic;margin-left:auto}
   `}</style>
 );
 
@@ -165,69 +624,6 @@ const ORIGINS=["Espanola","Italiana","Asiatica","Americana","Mediterranea","Mexi
 const DIFFS=["Facil","Media","Dificil"];
 const DIFF_CLS={"Facil":"cat-diff-easy","Media":"cat-diff","Dificil":"cat-diff-hard"};
 const CatBadge=({cat,type})=>{if(!cat)return null;const cls=type==="diet"?"cat-diet":type==="origin"?"cat-origin":(DIFF_CLS[cat]||"cat-diff");return<span className={`cat-badge ${cls}`}>{cat}</span>;};
-
-/* ─── UTILITIES ──────────────────────────────────────────────────────────── */
-
-/** Calcula edad exacta a partir de fecha ISO o "YYYY-MM-DD" */
-const calcEdad = (birthdate) => {
-  if (!birthdate) return null;
-  const hoy = new Date();
-  const nac = new Date(birthdate);
-  if (isNaN(nac)) return null;
-  let edad = hoy.getFullYear() - nac.getFullYear();
-  const m = hoy.getMonth() - nac.getMonth();
-  if (m < 0 || (m === 0 && hoy.getDate() < nac.getDate())) edad--;
-  return edad;
-};
-
-/** Formatea fecha ISO a "DD/MM/YYYY" */
-const fmtFecha = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString("es-ES", { day:"2-digit", month:"2-digit", year:"numeric" });
-};
-
-/**
- * Parser de entrevista: recibe texto libre y devuelve array de preguntas.
- * Detecta: líneas que terminan en "?", líneas numeradas "1.", "2.", etc.,
- * y bloques separados por línea vacía.
- */
-const parseInterview = (text) => {
-  if (!text || !text.trim()) return [];
-  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
-  const questions = [];
-  const numPattern = /^(\d+[.)\-]\s*)/;
-  const questionPattern = /\?\s*$/;
-
-  lines.forEach(line => {
-    const clean = line.replace(numPattern, "").trim();
-    if (!clean) return;
-    // Es una pregunta si: termina en "?", empieza con número, o empieza con mayúscula y es larga
-    if (questionPattern.test(clean) || numPattern.test(line) || (clean.length > 15 && /^[A-ZÁÉÍÓÚÑ¿]/.test(clean))) {
-      const text = clean.replace(/[?]+$/, "").trim() + "?";
-      if (text.length > 3 && !questions.find(q => q.text === text)) {
-        questions.push({
-          id: "qi_" + Date.now() + "_" + questions.length,
-          text,
-          type: "textarea",
-        });
-      }
-    }
-  });
-  return questions.length > 0 ? questions : [{ id:"qi_0", text: text.trim(), type:"textarea" }];
-};
-
-/** Avatar SVG por defecto según género */
-const AVATAR_SVG = {
-  F: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><circle cx="40" cy="40" r="40" fill="#e8d5c4"/><ellipse cx="40" cy="32" rx="13" ry="14" fill="#c8956c"/><ellipse cx="40" cy="70" rx="22" ry="18" fill="#7c5cbf"/><ellipse cx="40" cy="32" rx="13" ry="14" fill="#c8956c"/><path d="M27 30 Q28 18 40 18 Q52 18 53 30 Q50 22 40 22 Q30 22 27 30Z" fill="#5a3a1a"/><circle cx="35" cy="32" r="1.5" fill="#3a2a1a"/><circle cx="45" cy="32" r="1.5" fill="#3a2a1a"/><path d="M36 38 Q40 41 44 38" stroke="#a0624a" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>`,
-  M: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><circle cx="40" cy="40" r="40" fill="#d4e6f1"/><ellipse cx="40" cy="32" rx="13" ry="14" fill="#c8956c"/><rect x="18" y="52" width="44" height="28" rx="8" fill="#3a7ab5"/><ellipse cx="40" cy="32" rx="13" ry="14" fill="#c8956c"/><path d="M27 28 Q29 16 40 16 Q51 16 53 28 Q48 20 40 20 Q32 20 27 28Z" fill="#3a2a1a"/><circle cx="35" cy="32" r="1.5" fill="#3a2a1a"/><circle cx="45" cy="32" r="1.5" fill="#3a2a1a"/><path d="M36 38 Q40 41 44 38" stroke="#a0624a" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>`,
-};
-
-const getAvatarUrl = (sex) => {
-  const svg = AVATAR_SVG[sex] || AVATAR_SVG["M"];
-  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-};
 
 /* ─── CONSTANTS ───────────────────────────────────────────────────────────── */
 const DAYS=["Lunes","Martes","Miercoles","Jueves","Viernes","Sabado","Domingo"];
@@ -274,6 +670,61 @@ const calcTarget = (tdee, goalId) => {
   return goal ? tdee + goal.adj : tdee;
 };
 
+/* ─── UTILITY FUNCTIONS ─────────────────────────────────────────────────── */
+
+/** Calcula la edad exacta a partir de la fecha de nacimiento (ISO string o YYYY-MM-DD) */
+const calcEdad = (birthdate) => {
+  if (!birthdate) return null;
+  const hoy = new Date();
+  const nac = new Date(birthdate);
+  if (isNaN(nac.getTime())) return null;
+  let edad = hoy.getFullYear() - nac.getFullYear();
+  const m = hoy.getMonth() - nac.getMonth();
+  if (m < 0 || (m === 0 && hoy.getDate() < nac.getDate())) edad--;
+  return edad >= 0 ? edad : null;
+};
+
+/**
+ * Parsea un texto libre de entrevista en un array de preguntas.
+ * Detecta saltos de línea, signos "?" y puntos como separadores.
+ */
+const parseInterview = (text) => {
+  if (!text || !text.trim()) return [];
+  // 1. Split por salto de línea
+  const rawLines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const questions = [];
+  rawLines.forEach(line => {
+    // 2. Dentro de cada línea, split por "?" o "." seguidos de espacio/fin
+    const parts = line.split(/(?<=[?.])\s+|(?<=[?])/);
+    parts.forEach(part => {
+      // Limpia numeración tipo "1.", "a)", "-", "•"
+      const q = part.replace(/^[\s\d]+[.)]\s*|^[-•*]\s*/, '').trim();
+      if (q.length > 4) questions.push(q);
+    });
+  });
+  return questions;
+};
+
+/** Genera un avatar SVG inline (data URL) según género */
+const getDefaultAvatar = (genero) => {
+  const isMale = genero === 'M';
+  const bg = isMale ? '#3a7ab5' : '#7c5cbf';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+    <circle cx="40" cy="40" r="40" fill="${bg}"/>
+    <circle cx="40" cy="30" r="14" fill="rgba(255,255,255,0.9)"/>
+    <ellipse cx="40" cy="70" rx="22" ry="18" fill="rgba(255,255,255,0.9)"/>
+  </svg>`;
+  return 'data:image/svg+xml;base64,' + btoa(svg);
+};
+
+/** Formatea fecha ISO/YYYY-MM-DD a DD/MM/AAAA */
+const fmtFecha = (iso) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' });
+};
+
 /* ─── DEFAULT INTERVIEW QUESTIONS ──────────────────────────────────────── */
 const DEFAULT_QUESTIONS = [
   { id:"q1", text:"¿Tiene alguna alergia o intolerancia alimentaria?", type:"textarea" },
@@ -288,6 +739,166 @@ const DEFAULT_QUESTIONS = [
   { id:"q7", text:"¿Cuál es su motivación principal para el cambio?", type:"textarea" },
   { id:"q8", text:"¿Ha seguido alguna dieta anteriormente? ¿Con qué resultado?", type:"textarea" },
 ];
+
+/* ─── DEFAULT SUBSCRIPTIONS ─────────────────────────────────────────────── */
+const DEFAULT_SUBS = [
+  { id:"sub_basico",  nombre:"Básico",   precio:29,  color:"#4caf88", descripcion:"Seguimiento mensual, plan semanal + lista de compra.", icono:"🌱" },
+  { id:"sub_pro",     nombre:"Pro",      precio:59,  color:"#3a7ab5", descripcion:"Seguimiento quincenal, composición corporal y ajuste de macros.", icono:"⭐" },
+  { id:"sub_premium", nombre:"Premium",  precio:99,  color:"#9b7cb6", descripcion:"Seguimiento semanal ilimitado, recetas personalizadas y soporte prioritario.", icono:"👑" },
+];
+
+/* ─── SUBSCRIPTIONS VIEW ─────────────────────────────────────────────────── */
+function SubscriptionsView({ subscriptions, onAdd, onUpdate, onDelete, showToast }) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [editSub, setEditSub] = useState(null);
+
+  const blank = { id:null, nombre:"", precio:"", color:"#5c7a5c", descripcion:"", icono:"📋", logo:"" };
+  const [form, setForm] = useState(blank);
+  const sf = (k,v) => setForm(f=>({...f,[k]:v}));
+  const logoRef = useRef();
+
+  const openNew = () => { setForm(blank); setEditSub(null); setFormOpen(true); };
+  const openEdit = s => { setForm({...s}); setEditSub(s); setFormOpen(true); };
+  const closeForm = () => { setFormOpen(false); setEditSub(null); };
+
+  const save = () => {
+    if (!form.nombre.trim() || !form.precio) return showToast("Nombre y precio requeridos", "error");
+    const sub = { ...form, id: form.id || ("sub_"+Date.now()), precio: Number(form.precio) };
+    editSub ? onUpdate(sub) : onAdd(sub);
+    showToast(editSub ? "Suscripción actualizada ✓" : "Suscripción creada ✓");
+    closeForm();
+  };
+
+  const nPatients = () => 0; // placeholder — wired from App
+
+  const EMOJI_OPTIONS = ["🌱","⭐","👑","💎","🔥","🚀","🏆","🎯","⚡","🌟","💪","🍃"];
+
+  return (
+    <div>
+      <div className="ph f ac jb">
+        <div><h2>Suscripciones</h2><p>{subscriptions.length} planes activos</p></div>
+        <button className="btn btn-i" onClick={openNew}>+ Nueva suscripción</button>
+      </div>
+
+      {subscriptions.length === 0
+        ? <div className="es"><div className="ei">💳</div><p>Sin planes de suscripción. Crea el primero.</p></div>
+        : <div className="sub-grid">
+            {subscriptions.map(s => (
+              <div className="sub-card" key={s.id}>
+                <div className="sub-head">
+                  <div className="sub-logo" style={{background: s.color+"22", border:`2px solid ${s.color}44`}}>
+                    {s.logo
+                      ? <img src={s.logo} alt=""/>
+                      : <span>{s.icono||"📋"}</span>}
+                  </div>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:16,color:"var(--char)"}}>{s.nombre}</div>
+                    <div style={{fontSize:10,color:"var(--mid)",textTransform:"uppercase",letterSpacing:".06em"}}>Plan activo</div>
+                  </div>
+                  <div style={{marginLeft:"auto",textAlign:"right"}}>
+                    <div className="sub-price" style={{color:s.color}}>{s.precio}€</div>
+                    <div className="sub-period">/mes</div>
+                  </div>
+                </div>
+                <div className="sub-body">
+                  {s.descripcion && <div className="sub-desc">{s.descripcion}</div>}
+                  <div style={{marginTop:8,display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:10,height:10,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+                    <span style={{fontSize:11,color:"var(--mid)"}}>Color identificativo del plan</span>
+                  </div>
+                </div>
+                <div className="sub-actions">
+                  <button className="btn btn-o btn-xs" style={{borderColor:s.color,color:s.color}} onClick={()=>openEdit(s)}>✏️ Editar</button>
+                  <button className="btn btn-xs" style={{background:"var(--danger)",color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer"}}
+                    onClick={()=>{ if(window.confirm(`¿Eliminar plan "${s.nombre}"?`)) { onDelete(s.id); showToast("Plan eliminado"); } }}>🗑</button>
+                </div>
+              </div>
+            ))}
+          </div>}
+
+      {/* ── Form modal ── */}
+      {formOpen && (
+        <div className="mb" onClick={e=>e.target===e.currentTarget&&closeForm()}>
+          <div className="mo" style={{maxWidth:500}}>
+            <div className="mo-hd">
+              <h3>{editSub?"✏️ Editar suscripción":"💳 Nueva suscripción"}</h3>
+              <button className="mo-x" onClick={closeForm}>✕</button>
+            </div>
+
+            <div className="f2">
+              <div className="fg"><label className="fl">Nombre del plan *</label>
+                <input className="fi" value={form.nombre} onChange={e=>sf("nombre",e.target.value)} placeholder="Premium"/>
+              </div>
+              <div className="fg"><label className="fl">Precio mensual (€) *</label>
+                <input className="fi" type="number" min="0" step="0.01" value={form.precio} onChange={e=>sf("precio",e.target.value)} placeholder="99"/>
+              </div>
+            </div>
+
+            <div className="fg"><label className="fl">Descripción</label>
+              <textarea className="fta" style={{minHeight:70}} value={form.descripcion} onChange={e=>sf("descripcion",e.target.value)} placeholder="Seguimiento semanal, recetas personalizadas..."/>
+            </div>
+
+            <div className="f2">
+              <div className="fg">
+                <label className="fl">Emoji / icono</label>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:4}}>
+                  {EMOJI_OPTIONS.map(em=>(
+                    <button key={em} onClick={()=>sf("icono",em)}
+                      style={{width:34,height:34,border:`2px solid ${form.icono===em?"var(--sage-dk)":"var(--cream-dk)"}`,borderRadius:8,background:form.icono===em?"var(--cream)":"#fff",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {em}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="fg">
+                <label className="fl">Color del plan</label>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
+                  <input type="color" value={form.color} onChange={e=>sf("color",e.target.value)}
+                    style={{width:44,height:44,border:"none",background:"none",cursor:"pointer",padding:0,borderRadius:8}}/>
+                  <span style={{fontSize:12,color:"var(--mid)"}}>Se usa en tarjetas y badges</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Logo upload */}
+            <div className="fg">
+              <label className="fl">Logo del plan (opcional)</label>
+              <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                {form.logo
+                  ? <img src={form.logo} style={{width:52,height:52,borderRadius:10,objectFit:"contain",border:"1px solid var(--cream-dk)"}}/>
+                  : <div style={{width:52,height:52,borderRadius:10,background:form.color+"22",border:`2px dashed ${form.color}66`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{form.icono||"📋"}</div>}
+                <div>
+                  <button className="btn btn-o btn-sm" onClick={()=>logoRef.current.click()}>📷 Subir logo</button>
+                  {form.logo && <button className="btn btn-g btn-xs" style={{marginLeft:6}} onClick={()=>sf("logo","")}>✕</button>}
+                </div>
+                <input ref={logoRef} type="file" accept="image/*" style={{display:"none"}}
+                  onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>sf("logo",ev.target.result);r.readAsDataURL(f);}}/>
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div style={{background:"var(--cream)",borderRadius:10,padding:14,marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:42,height:42,borderRadius:9,background:form.color+"22",border:`2px solid ${form.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,overflow:"hidden"}}>
+                {form.logo?<img src={form.logo} style={{width:"100%",height:"100%",objectFit:"contain"}}/>:form.icono||"📋"}
+              </div>
+              <div>
+                <div style={{fontWeight:700,fontSize:14,color:form.color||"var(--char)"}}>{form.nombre||"Nombre del plan"}</div>
+                <div style={{fontSize:13,color:"var(--mid)"}}>{form.precio?form.precio+"€/mes":"Precio"}</div>
+              </div>
+            </div>
+
+            <div className="f g8" style={{justifyContent:"flex-end"}}>
+              <button className="btn btn-g" onClick={closeForm}>Cancelar</button>
+              <button className="btn btn-i" disabled={!form.nombre.trim()||!form.precio} onClick={save}>
+                💾 {editSub?"Guardar cambios":"Crear plan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ─── PATIENT STYLES ─────────────────────────────────────────────────────── */
 const PatientStyles = () => (
@@ -327,6 +938,50 @@ const PatientStyles = () => (
     .assign-btn{display:flex;align-items:center;gap:8px;padding:10px 14px;border:1.5px solid var(--cream-dk);border-radius:var(--rs);background:#fff;cursor:pointer;transition:all .16s;font-size:12px;font-weight:500;width:100%;text-align:left}
     .assign-btn:hover{border-color:var(--info);background:rgba(58,122,181,.04)}
     .assign-btn.active{border-color:var(--info);background:rgba(58,122,181,.08);font-weight:700;color:var(--info)}
+    /* ── NEW v4.1 ── */
+    .badge-revisado{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.04em}
+    .badge-revisado.ok{background:rgba(92,122,92,.15);color:var(--sage-dk)}
+    .badge-revisado.pending{background:rgba(196,124,59,.15);color:#8a5a1a}
+    .linechart-svg{overflow:visible}
+    .lc-line{fill:none;stroke:var(--info);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+    .lc-area{fill:url(#lc-grad);opacity:.18}
+    .lc-dot{fill:#fff;stroke:var(--info);stroke-width:2}
+    .lc-label{font-size:9px;fill:var(--mid);text-anchor:middle}
+    .lc-val{font-size:9px;fill:var(--char);font-weight:700;text-anchor:middle}
+    .collapsible-hd{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:10px 14px;background:var(--cream);border-radius:var(--rs);margin-bottom:4px;transition:background .14s}
+    .collapsible-hd:hover{background:var(--cream-dk)}
+    .collapsible-hd h4{font-size:13px;color:var(--char);margin:0}
+    .collapsible-body{padding:0 2px;overflow:hidden}
+    .antro-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+    .antro-card{background:var(--cream);border-radius:var(--rs);padding:10px 12px;text-align:center}
+    .antro-card .av{font-size:16px;font-weight:700;color:var(--sage-dk);font-family:'Playfair Display',serif}
+    .antro-card .al{font-size:10px;color:var(--mid);text-transform:uppercase;letter-spacing:.07em;margin-top:2px}
+    .date-chip{display:inline-block;background:rgba(58,122,181,.1);color:var(--info);border-radius:20px;padding:2px 9px;font-size:10px;font-weight:600}
+    /* ── SUBSCRIPTIONS ── */
+    .sub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px}
+    .sub-card{background:#fff;border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;transition:transform .2s,box-shadow .2s}
+    .sub-card:hover{transform:translateY(-2px);box-shadow:var(--sh-lg)}
+    .sub-head{padding:18px 20px 14px;display:flex;align-items:center;gap:12px}
+    .sub-logo{width:46px;height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;overflow:hidden}
+    .sub-logo img{width:100%;height:100%;object-fit:contain}
+    .sub-body{padding:0 20px 16px;flex:1}
+    .sub-price{font-family:'Playfair Display',serif;font-size:28px;font-weight:700;line-height:1}
+    .sub-period{font-size:11px;color:var(--mid)}
+    .sub-desc{font-size:12px;color:var(--mid);margin-top:6px;line-height:1.5}
+    .sub-actions{display:flex;gap:6px;padding:0 20px 16px}
+    /* ── PATIENT PLAN EDITOR ── */
+    .pt-planner{border:1.5px solid var(--cream-dk);border-radius:var(--r);overflow:hidden}
+    .pt-planner-hd{background:linear-gradient(90deg,var(--sage-dk),var(--sage));padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+    .pt-planner-hd h4{color:#fff;font-size:14px;margin:0}
+    .pt-planner-body{padding:16px;overflow-x:auto}
+    .pt-plan-actions{display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;background:var(--cream);border-top:1px solid var(--cream-dk)}
+    /* ── EMAIL FAB ── */
+    .email-fab{position:fixed;bottom:28px;left:28px;z-index:900;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+    .email-fab-main{width:48px;height:48px;border-radius:50%;background:var(--sage-dk);color:#fff;border:none;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:var(--sh-lg);transition:transform .18s,background .18s}
+    .email-fab-main:hover{background:var(--sage);transform:scale(1.08)}
+    .email-fab-item{display:flex;align-items:center;gap:9px;background:#fff;border-radius:24px;padding:7px 14px 7px 8px;box-shadow:var(--sh);font-size:12px;font-weight:600;color:var(--char);cursor:pointer;border:1.5px solid var(--cream-dk);transition:all .15s;white-space:nowrap;text-decoration:none}
+    .email-fab-item:hover{box-shadow:var(--sh-lg);transform:translateX(3px)}
+    .email-fab-icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px}
   `}</style>
 );
 
@@ -336,19 +991,8 @@ function InterviewBuilder({ questions, onSave, onClose }) {
   const [newText, setNewText] = useState("");
   const [newType, setNewType] = useState("textarea");
   const [newOpts, setNewOpts] = useState("");
-  const [pasteMode, setPasteMode] = useState(false);
   const [pasteText, setPasteText] = useState("");
-
-  const applyParse = () => {
-    const parsed = parseInterview(pasteText);
-    if (!parsed.length) return;
-    setQs(prev => {
-      const existing = new Set(prev.map(q=>q.text));
-      const newOnes = parsed.filter(q => !existing.has(q.text));
-      return [...prev, ...newOnes];
-    });
-    setPasteText(""); setPasteMode(false);
-  };
+  const [showPaste, setShowPaste] = useState(false);
 
   const addQ = () => {
     if (!newText.trim()) return;
@@ -363,6 +1007,21 @@ function InterviewBuilder({ questions, onSave, onClose }) {
     [arr[i],arr[j]]=[arr[j],arr[i]]; setQs(arr);
   };
 
+  const importFromPaste = () => {
+    const parsed = parseInterview(pasteText);
+    if (!parsed.length) return;
+    const newQs = parsed.map(text => ({
+      id: "q" + Date.now() + Math.random(),
+      text,
+      type: "textarea",
+      options: [],
+      fecha_realizacion: new Date().toISOString(),
+    }));
+    setQs(prev => [...prev, ...newQs]);
+    setPasteText("");
+    setShowPaste(false);
+  };
+
   return (
     <div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="mo">
@@ -371,6 +1030,30 @@ function InterviewBuilder({ questions, onSave, onClose }) {
           Personaliza las preguntas que aparecerán al registrar un nuevo paciente.
         </p>
 
+        <div style={{marginBottom:14,display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button className="btn btn-g btn-sm" onClick={()=>setShowPaste(v=>!v)}>
+            {showPaste?"✕ Cancelar importación":"📋 Importar desde texto"}
+          </button>
+        </div>
+        {showPaste && (
+          <div style={{background:"rgba(58,122,181,.06)",border:"1.5px solid var(--info)",borderRadius:"var(--rs)",padding:16,marginBottom:16}}>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--info)",marginBottom:8}}>📋 Pegar texto de entrevista</div>
+            <p style={{fontSize:11,color:"var(--mid)",marginBottom:10,lineHeight:1.6}}>
+              Pega el texto con las preguntas. Se detectarán automáticamente separadas por saltos de línea, signos <b>?</b> o puntos <b>.</b>.
+            </p>
+            <textarea className="fta" style={{minHeight:100}} value={pasteText}
+              onChange={e=>setPasteText(e.target.value)}
+              placeholder={"¿Tienes alguna alergia?\n¿Cuántas comidas haces al día?\n¿Practicas ejercicio? ¿Cuántas veces por semana."}/>
+            {pasteText.trim() && (
+              <div style={{fontSize:11,color:"var(--sage-dk)",margin:"6px 0"}}>
+                ✓ Se detectan <b>{parseInterview(pasteText).length}</b> pregunta(s)
+              </div>
+            )}
+            <button className="btn btn-i btn-sm" style={{marginTop:6}} disabled={!pasteText.trim()} onClick={importFromPaste}>
+              ➕ Añadir preguntas detectadas
+            </button>
+          </div>
+        )}
         <div style={{marginBottom:20}}>
           {qs.map((q,i) => (
             <div key={q.id} className="q-builder-row">
@@ -422,20 +1105,21 @@ function InterviewBuilder({ questions, onSave, onClose }) {
 }
 
 /* ─── PATIENT FORM ──────────────────────────────────────────────────────── */
-function PatientForm({ patient, questions, onSave, onClose }) {
+function PatientForm({ patient, questions, subscriptions, onSave, onClose }) {
   const blank = {
-    id:null, name:"", email:"", phone:"", sex:"F", birthdate:"",
-    weight:"", height:"", age:"", activityLevel:"moderate", goal:"maintain",
-    notes:"", photo:"", answers:{}, history:[],
-    plan:"basico",
-    revisado:false,
-    entrevista_fecha:null,
-    dieta_fecha_asignacion:null,
-    dieta_fecha_lista_compra:null,
-    antropometria:[],
-    createdAt: new Date().toISOString(),
+    id:null, name:"", email:"", phone:"", sex:"F", genero:"F",
+    birthdate:"", weight:"", height:"", age:"",
+    activityLevel:"moderate", goal:"maintain",
+    notes:"", photo:"", contrato:"",
+    revisado: false,
+    answers:{}, history:[],
+    mediciones_corporales:[],   // [{fecha,masa_magra,grasa_visceral,porcentaje_grasa,porcentaje_agua}]
+    interview_records:[],       // [{id,fecha_realizacion,answers}]
   };
-  const [form, setForm] = useState(() => patient ? {...blank,...patient} : blank);
+  const [form, setForm] = useState(() => patient ? {
+    ...blank, ...patient,
+    genero: patient.genero || patient.sex || 'F',
+  } : blank);
   const sf = (k,v) => setForm(f=>({...f,[k]:v}));
   const setAnswer = (qid,v) => setForm(f=>({...f,answers:{...f.answers,[qid]:v}}));
   const photoRef = useRef();
@@ -447,8 +1131,16 @@ function PatientForm({ patient, questions, onSave, onClose }) {
 
   const save = () => {
     if (!form.name.trim()) return;
-    onSave({ ...form, id: form.id || Date.now(),
-      bmr, tdee, targetKcal: target, updatedAt: new Date().toISOString() });
+    const edadCalc = calcEdad(form.birthdate);
+    const photoFinal = form.photo || getDefaultAvatar(form.genero || form.sex);
+    onSave({
+      ...form,
+      id: form.id || Date.now(),
+      age: edadCalc !== null ? edadCalc : Number(form.age) || '',
+      photo: photoFinal,
+      bmr, tdee, targetKcal: target,
+      updatedAt: new Date().toISOString(),
+    });
   };
 
   return (
@@ -473,22 +1165,47 @@ function PatientForm({ patient, questions, onSave, onClose }) {
                   <option value="F">Mujer</option><option value="M">Hombre</option>
                 </select>
               </div>
-              <div className="fg"><label className="fl">Fecha de nacimiento</label>
-                <input className="fi" type="date" value={form.birthdate} onChange={e=>{sf("birthdate",e.target.value);const edad=calcEdad(e.target.value);if(edad!==null)sf("age",edad);}}/>
-                {form.birthdate && calcEdad(form.birthdate)!==null && <div style={{fontSize:11,color:"var(--sage-dk)",marginTop:3,fontWeight:600}}>✓ {calcEdad(form.birthdate)} años</div>}
+              <div className="fg"><label className="fl">Género (avatar)</label>
+                <select className="fs" value={form.genero||form.sex} onChange={e=>sf("genero",e.target.value)}>
+                  <option value="F">Femenino</option><option value="M">Masculino</option>
+                </select>
               </div>
             </div>
-            <div className="fg">
-              <label className="fl">Plan de suscripción</label>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-                {PLANS_DASH.map(plan=>(
-                  <div key={plan} onClick={()=>sf("plan",plan)}
-                    style={{border:"1.5px solid "+(form.plan===plan?PLAN_COLORS_DASH[plan]:"var(--cream-dk)"),borderRadius:8,padding:"10px 12px",cursor:"pointer",background:form.plan===plan?PLAN_COLORS_DASH[plan]+"18":"#fff",transition:"all .15s",textAlign:"center"}}>
-                    <div style={{fontWeight:700,fontSize:12,color:form.plan===plan?PLAN_COLORS_DASH[plan]:"var(--char)"}}>{PLAN_LABELS_DASH[plan]}</div>
-                    <div style={{fontSize:10,color:"var(--mid)",marginTop:1}}>{PLAN_PRICES_DASH[plan]} €/mes</div>
+            <div className="fg"><label className="fl">Fecha de nacimiento</label>
+              <input className="fi" type="date" value={form.birthdate} onChange={e=>{
+                sf("birthdate",e.target.value);
+                if(e.target.value){const ed=calcEdad(e.target.value);if(ed!==null)sf("age",ed);}
+              }}/>
+              {form.birthdate && calcEdad(form.birthdate)!==null && (
+                <div style={{fontSize:11,color:"var(--sage-dk)",marginTop:3,fontWeight:600}}>
+                  🎂 {calcEdad(form.birthdate)} años
+                </div>
+              )}
+            </div>
+            <div className="fg"><label className="fl">Plan contratado</label>
+              {subscriptions && subscriptions.length > 0 ? (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8,marginTop:4}}>
+                  {subscriptions.map(s=>(
+                    <div key={s.id} onClick={()=>sf("contrato",s.nombre)}
+                      style={{border:`2px solid ${form.contrato===s.nombre?s.color:"var(--cream-dk)"}`,borderRadius:9,padding:"9px 11px",cursor:"pointer",
+                        background:form.contrato===s.nombre?s.color+"14":"#fff",transition:"all .15s",display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:18}}>{s.icono||"📋"}</span>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:12,color:form.contrato===s.nombre?s.color:"var(--char)"}}>{s.nombre}</div>
+                        <div style={{fontSize:10,color:"var(--mid)"}}>{s.precio}€/mes</div>
+                      </div>
+                    </div>
+                  ))}
+                  <div onClick={()=>sf("contrato","")}
+                    style={{border:`2px solid ${!form.contrato?"var(--mid)":"var(--cream-dk)"}`,borderRadius:9,padding:"9px 11px",cursor:"pointer",
+                      background:!form.contrato?"var(--cream)":"#fff",transition:"all .15s",display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:18}}>🚫</span>
+                    <div style={{fontWeight:700,fontSize:12,color:"var(--mid)"}}>Sin plan</div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <input className="fi" value={form.contrato||""} onChange={e=>sf("contrato",e.target.value)} placeholder="Básico · Premium · Intensivo..."/>
+              )}
             </div>
           </div>
           {/* Photo upload */}
@@ -497,14 +1214,13 @@ function PatientForm({ patient, questions, onSave, onClose }) {
             <div className={"img-upload-box"+(form.photo?" has-img":"")} onClick={()=>photoRef.current.click()}>
               {form.photo
                 ?<><img src={form.photo} alt=""/><div className="overlay" style={{color:"#fff",flexDirection:"column",gap:4,fontSize:12,fontWeight:600}}><span style={{fontSize:20}}>📷</span>Cambiar</div></>
-                :<div style={{padding:"12px 0",color:"var(--mid)",display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
-                  <img src={getAvatarUrl(form.sex)} style={{width:56,height:56,borderRadius:"50%",opacity:.7}} alt="avatar"/>
-                  <div style={{fontWeight:600,fontSize:12}}>Foto del paciente</div>
-                  <div style={{fontSize:10}}>Se usará avatar por defecto según género</div>
-                </div>}
+                :<div style={{padding:"20px 0",color:"var(--mid)"}}>
+                   <img src={getDefaultAvatar(form.genero||form.sex)} alt="" style={{width:52,height:52,borderRadius:"50%",marginBottom:6,display:"block",margin:"0 auto 8px"}}/>
+                   <div style={{fontWeight:600,fontSize:12}}>Foto del paciente</div>
+                   <div style={{fontSize:10}}>Opcional · Se usará avatar por género</div>
+                 </div>}
             </div>
             <input ref={photoRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>sf("photo",ev.target.result);r.readAsDataURL(f);}}/>
-            {form.photo && <button className="btn btn-g btn-xs" style={{alignSelf:"flex-start",marginTop:4}} onClick={e=>{e.stopPropagation();sf("photo","");}}>✕ Quitar foto</button>}
           </div>
         </div>
 
@@ -632,8 +1348,277 @@ function CheckInModal({ patient, onSave, onClose }) {
   );
 }
 
+/* ─── PATIENT PLAN EDITOR ───────────────────────────────────────────────── */
+function PatientPlanEditor({ patient, recipes, weekTemplates, onUpdate, onSaveTemplate, profile, showToast }) {
+  const [week, setWeek] = useState(() => patient.personalWeek || mkWeek());
+  const [modal, setModal] = useState(null);
+  const [saveAsGlobalOpen, setSaveAsGlobalOpen] = useState(false);
+  const [planName, setPlanName] = useState(patient.name + " — Plan Personalizado");
+  const [showPlanName, setShowPlanName] = useState(false);
+
+  // Sync if patient.personalWeek changes externally
+  useEffect(() => { setWeek(patient.personalWeek || mkWeek()); }, [patient.id]);
+
+  const addMeal = (day, meal, id) => setWeek(w => {
+    const nw = JSON.parse(JSON.stringify(w));
+    nw[day][meal] = [...(nw[day][meal]||[]), id];
+    return nw;
+  });
+  const removeMeal = (day, meal, idx) => setWeek(w => {
+    const nw = JSON.parse(JSON.stringify(w));
+    nw[day][meal] = (nw[day][meal]||[]).filter((_,i)=>i!==idx);
+    return nw;
+  });
+
+  const totalRecipes = Object.values(week).reduce((a,d)=>a+Object.values(d).reduce((b,m)=>b+(m||[]).length,0),0);
+  const shopList = buildShoppingList(week, recipes, 1.2);
+
+  const saveForPatient = () => {
+    onUpdate({ ...patient, personalWeek: week, fecha_asignacion: new Date().toISOString() });
+    showToast("Plan guardado para " + patient.name + " ✓");
+  };
+
+  const doPlanPDF = () => {
+    const ok = openPrintWindow(buildMenuPDF(week, recipes, profile));
+    if (ok) showToast("PDF menú — Ctrl+P para guardar", "info");
+    else showToast("Activa ventanas emergentes", "error");
+  };
+
+  const doShopPDF = () => {
+    onUpdate({ ...patient, fecha_lista_compra: new Date().toISOString() });
+    const ok = openPrintWindow(buildShopPDF(shopList, true, week, recipes, profile));
+    if (ok) showToast("PDF lista de compra — Ctrl+P para guardar", "info");
+    else showToast("Activa ventanas emergentes", "error");
+  };
+
+  return (
+    <div className="pt-planner" style={{marginBottom:16}}>
+      <div className="pt-planner-hd">
+        <h4>🗓 Diseñar plan personalizado</h4>
+        <span style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>{totalRecipes} recetas · {shopList.length} ing. en lista compra</span>
+      </div>
+      <div className="pt-planner-body">
+        <div className="wg" style={{minWidth:780}}>
+          <div className="wh" style={{background:"var(--char)",fontSize:9}}>Comida</div>
+          {DAYS.map(d=><div key={d} className="wh" style={{fontSize:9}}>{d}</div>)}
+          {MEALS.map(meal=>(
+            <React.Fragment key={meal}>
+              <div className="wml"><span>{MICON[meal]}</span><span style={{textAlign:"center",lineHeight:1.2,fontSize:9}}>{meal}</span></div>
+              {DAYS.map(day=>(
+                <div key={day+meal} className="wc">
+                  {(week[day]?.[meal]||[]).map((id,i)=>{
+                    const r = recipes.find(x=>x.id===id);
+                    return r ? (
+                      <div key={i} className="mt">
+                        <span style={{fontSize:9,flex:1,lineHeight:1.3}}>{r.name}</span>
+                        <button onClick={()=>removeMeal(day,meal,i)}>✕</button>
+                      </div>
+                    ) : null;
+                  })}
+                  <button className="ab" onClick={()=>setModal({day,meal})}>+</button>
+                </div>
+              ))}
+            </React.Fragment>
+          ))}
+        </div>
+        {/* Daily summary */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:8,marginTop:14}}>
+          {DAYS.map(day=>{
+            const dm = dayM(week,day,recipes);
+            return dm.kcal > 0 ? (
+              <div key={day} style={{background:"var(--cream)",borderRadius:6,padding:"7px 9px"}}>
+                <div style={{fontWeight:700,fontSize:10,color:"var(--sage-dk)",marginBottom:3}}>{day.slice(0,3)}</div>
+                <div style={{fontSize:11,color:"var(--char)",fontWeight:600}}>{dm.kcal} kcal</div>
+                <div style={{fontSize:9,color:"var(--mid)"}}>{dm.prot}g P · {dm.carbs}g HC</div>
+              </div>
+            ) : null;
+          })}
+        </div>
+      </div>
+
+      {/* Action bar */}
+      <div className="pt-plan-actions">
+        <button className="btn btn-p btn-sm" disabled={totalRecipes===0} onClick={saveForPatient}>
+          💾 Guardar plan del paciente
+        </button>
+        <button className="btn btn-i btn-sm" disabled={totalRecipes===0} onClick={()=>setSaveAsGlobalOpen(true)}>
+          📋 Guardar como plantilla
+        </button>
+        {totalRecipes > 0 && <>
+          <button className="btn btn-t btn-sm" onClick={doPlanPDF}>🖨️ PDF Menú</button>
+          <button className="btn btn-o btn-sm" onClick={doShopPDF}>🛒 PDF Lista Compra</button>
+        </>}
+        <button className="btn btn-g btn-sm" style={{marginLeft:"auto"}} onClick={()=>{if(window.confirm("¿Limpiar todo el plan?"))setWeek(mkWeek());}}>🗑 Limpiar</button>
+      </div>
+
+      {/* Add meal modal */}
+      {modal && (
+        <AddMeal day={modal.day} meal={modal.meal} recipes={recipes}
+          onAdd={id=>addMeal(modal.day,modal.meal,id)}
+          onClose={()=>setModal(null)}/>
+      )}
+
+      {/* Save as global template modal */}
+      {saveAsGlobalOpen && (
+        <SaveTemplateModal week={week} recipes={recipes}
+          onSave={tpl=>{ onSaveTemplate(tpl); showToast("Plantilla guardada ✓"); }}
+          onClose={()=>setSaveAsGlobalOpen(false)}/>
+      )}
+    </div>
+  );
+}
+
+/* ─── WEIGHT LINE CHART (SVG nativo) ────────────────────────────────────── */
+function WeightLineChart({ data }) {
+  if (!data || data.length < 2) return null;
+  const W = 520, H = 130, PX = 40, PY = 20;
+  const vals = data.map(d => d.w);
+  const minV = Math.min(...vals);
+  const maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+  const xStep = (W - PX * 2) / (data.length - 1);
+
+  const pt = (i) => ({
+    x: PX + i * xStep,
+    y: PY + (1 - (vals[i] - minV) / range) * (H - PY * 2),
+  });
+
+  const points = data.map((_, i) => pt(i));
+  const linePath = points.map((p, i) => (i === 0 ? `M${p.x},${p.y}` : `L${p.x},${p.y}`)).join(' ');
+  const areaPath = linePath + ` L${points[points.length-1].x},${H - PY} L${points[0].x},${H - PY} Z`;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="linechart-svg" style={{width:"100%",height:H}}>
+      <defs>
+        <linearGradient id="lc-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--info)" stopOpacity="0.35"/>
+          <stop offset="100%" stopColor="var(--info)" stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      {/* Grid lines */}
+      {[0,0.25,0.5,0.75,1].map((t,i)=>{
+        const y = PY + (1-t)*(H-PY*2);
+        const val = (minV + t*range).toFixed(1);
+        return (
+          <g key={i}>
+            <line x1={PX} y1={y} x2={W-PX} y2={y} stroke="var(--cream-dk)" strokeWidth="1"/>
+            <text x={PX-4} y={y+3} fontSize="8" fill="var(--mid)" textAnchor="end">{val}</text>
+          </g>
+        );
+      })}
+      {/* Area + Line */}
+      <path d={areaPath} className="lc-area"/>
+      <path d={linePath} className="lc-line"/>
+      {/* Dots + labels */}
+      {points.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r={4} className="lc-dot"/>
+          <text x={p.x} y={p.y - 10} className="lc-val">{vals[i]}</text>
+          <text x={p.x} y={H - PY + 13} className="lc-label">{data[i].date.slice(5)}</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/* ─── ANTHROPOMETRIC SECTION (collapsible) ──────────────────────────────── */
+function AntroSection({ patient, onUpdate }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    fecha: new Date().toISOString().split('T')[0],
+    masa_magra: '', grasa_visceral: '', porcentaje_grasa: '', porcentaje_agua: '',
+  });
+  const mediciones = patient.mediciones_corporales || [];
+  const last = mediciones[mediciones.length - 1];
+
+  const save = () => {
+    if (!form.fecha) return;
+    const entry = { ...form, id: Date.now() };
+    onUpdate({ ...patient, mediciones_corporales: [...mediciones, entry] });
+    setForm({ fecha: new Date().toISOString().split('T')[0], masa_magra:'', grasa_visceral:'', porcentaje_grasa:'', porcentaje_agua:'' });
+  };
+
+  return (
+    <div style={{marginBottom:20}}>
+      <div className="collapsible-hd" onClick={()=>setOpen(o=>!o)}>
+        <h4>🧬 Composición corporal {last && <span className="date-chip" style={{marginLeft:8}}>Último: {fmtFecha(last.fecha)}</span>}</h4>
+        <span style={{fontSize:12,color:"var(--mid)"}}>{open?"▲":"▼"}</span>
+      </div>
+      {open && (
+        <div className="collapsible-body" style={{padding:"14px 2px"}}>
+          {last && (
+            <div className="antro-grid" style={{marginBottom:16}}>
+              {[["masa_magra","Masa Magra","kg"],["grasa_visceral","Gr. Visceral","nivel"],
+                ["porcentaje_grasa","% Grasa","%"],["porcentaje_agua","% Agua","%"]].map(([k,lbl,u])=>(
+                last[k] ? (
+                  <div className="antro-card" key={k}>
+                    <div className="av">{last[k]}<span style={{fontSize:11}}> {u}</span></div>
+                    <div className="al">{lbl}</div>
+                  </div>
+                ) : null
+              ))}
+            </div>
+          )}
+          {/* Historical table */}
+          {mediciones.length > 0 && (
+            <div style={{overflowX:"auto",marginBottom:16}}>
+              <table className="it">
+                <thead><tr>
+                  <th>Fecha</th><th>Masa Magra (kg)</th><th>Gr. Visceral</th><th>% Grasa</th><th>% Agua</th>
+                </tr></thead>
+                <tbody>
+                  {[...mediciones].reverse().map(m=>(
+                    <tr key={m.id}>
+                      <td>{fmtFecha(m.fecha)}</td>
+                      <td>{m.masa_magra||'—'}</td>
+                      <td>{m.grasa_visceral||'—'}</td>
+                      <td>{m.porcentaje_grasa||'—'}</td>
+                      <td>{m.porcentaje_agua||'—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {/* Add new entry */}
+          <div style={{background:"var(--cream)",borderRadius:"var(--rs)",padding:14}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:"var(--char)"}}>➕ Nueva medición</div>
+            <div className="f3" style={{gap:10}}>
+              <div className="fg" style={{marginBottom:0}}>
+                <label className="fl">Fecha</label>
+                <input className="fi" type="date" value={form.fecha} onChange={e=>setForm(f=>({...f,fecha:e.target.value}))}/>
+              </div>
+              <div className="fg" style={{marginBottom:0}}>
+                <label className="fl">Masa Magra (kg)</label>
+                <input className="fi" type="number" step="0.1" placeholder="52.4" value={form.masa_magra} onChange={e=>setForm(f=>({...f,masa_magra:e.target.value}))}/>
+              </div>
+              <div className="fg" style={{marginBottom:0}}>
+                <label className="fl">Grasa Visceral</label>
+                <input className="fi" type="number" step="1" placeholder="8" value={form.grasa_visceral} onChange={e=>setForm(f=>({...f,grasa_visceral:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="f2" style={{gap:10,marginTop:10}}>
+              <div className="fg" style={{marginBottom:0}}>
+                <label className="fl">% Grasa corporal</label>
+                <input className="fi" type="number" step="0.1" placeholder="24.5" value={form.porcentaje_grasa} onChange={e=>setForm(f=>({...f,porcentaje_grasa:e.target.value}))}/>
+              </div>
+              <div className="fg" style={{marginBottom:0}}>
+                <label className="fl">% Agua corporal</label>
+                <input className="fi" type="number" step="0.1" placeholder="55.2" value={form.porcentaje_agua} onChange={e=>setForm(f=>({...f,porcentaje_agua:e.target.value}))}/>
+              </div>
+            </div>
+            <button className="btn btn-p btn-sm" style={{marginTop:12}} disabled={!form.fecha} onClick={save}>
+              ✓ Guardar medición
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── PATIENT DETAIL ────────────────────────────────────────────────────── */
-function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, onEdit, onDelete, onAddCheckin, onAssignTemplate }) {
+function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, onEdit, onDelete, onAddCheckin, onAssignTemplate, onUpdate, onSaveTemplate, showToast }) {
   const [tab, setTab] = useState("overview");
   const [checkInOpen, setCheckInOpen] = useState(false);
 
@@ -647,28 +1632,47 @@ function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, on
   const lastEntry = history.slice(-1)[0];
   const assignedTpl = weekTemplates.find(t=>t.id===patient.assignedTemplateId);
 
+  const edadMostrar = calcEdad(patient.birthdate) ?? patient.age;
+
   // Weight progress for chart
-  const chartData = history.slice(-8).map(h=>({ date:h.date, w:h.weight }));
+  const chartData = history.slice(-10).map(h=>({ date:h.date, w:h.weight }));
   const maxW = Math.max(...chartData.map(d=>d.w), patient.weight||0) + 2;
   const minW = Math.min(...chartData.map(d=>d.w), patient.weight||0) - 2;
   const range = maxW - minW || 1;
+
+  // Toggle revisado
+  const toggleRevisado = () => onUpdate && onUpdate({ ...patient, revisado: !patient.revisado });
 
   return (
     <div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="mo" style={{maxWidth:900}}>
         {/* Header */}
         <div style={{display:"flex",gap:16,alignItems:"flex-start",marginBottom:20}}>
-          {patient.photo
-            ? <img src={patient.photo} style={{width:70,height:70,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>
+          {patient.photo || patient.genero
+            ? <img src={patient.photo || getDefaultAvatar(patient.genero||patient.sex)} style={{width:70,height:70,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>
             : <div style={{width:70,height:70,borderRadius:"50%",background:"linear-gradient(135deg,#2a4a7a,#3a7ab5)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:26,color:"#fff"}}>👤</div>}
           <div style={{flex:1}}>
-            <h3 style={{fontSize:22,marginBottom:3}}>{patient.name}</h3>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:4}}>
+              <h3 style={{fontSize:22,margin:0}}>{patient.name}</h3>
+              {/* Revisado badge */}
+              <span
+                className={"badge-revisado "+(patient.revisado?"ok":"pending")}
+                style={{cursor:"pointer"}}
+                title={patient.revisado?"Marcar como pendiente":"Marcar como revisado"}
+                onClick={toggleRevisado}
+              >
+                {patient.revisado?"✓ Revisado":"⏳ Pendiente"}
+              </span>
+            </div>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:12,color:"var(--mid)"}}>
-              {patient.age && <span>🎂 {patient.age} años</span>}
+              {patient.birthdate && <span>🎂 {fmtFecha(patient.birthdate)}{edadMostrar?" ("+edadMostrar+" años)":""}</span>}
+              {!patient.birthdate && patient.age && <span>🎂 {patient.age} años</span>}
               {patient.weight && <span>⚖️ {patient.weight} kg</span>}
               {patient.height && <span>📏 {patient.height} cm</span>}
+              {patient.phone && <span>📱 {patient.phone}</span>}
               {actObj && <span>🏃 {actObj.label}</span>}
               {patient.email && <span>✉️ {patient.email}</span>}
+              {patient.contrato && <span style={{background:"rgba(124,92,191,.12)",color:"var(--purple)",padding:"1px 8px",borderRadius:20,fontWeight:600}}>📄 {patient.contrato}</span>}
             </div>
             {target>0 && <div style={{marginTop:6,display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:24,fontWeight:700,fontFamily:"Playfair Display,serif",color:goalObj?.color||"var(--sage-dk)"}}>{target}</span>
@@ -708,18 +1712,15 @@ function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, on
           </div>
 
           {/* Weight chart */}
-          {chartData.length > 1 && <div>
-            <h4 className="st" style={{fontSize:13}}>Evolución del peso (últimas {chartData.length} sesiones)</h4>
-            <div className="prog-chart" style={{marginBottom:24}}>
-              {chartData.map((d,i)=>{
-                const pct=Math.round(((d.w-minW)/range)*70);
-                return(<div key={i} className="prog-bar" style={{background:"var(--info)",opacity:.7+i*.04,height:(pct+10)+"px",position:"relative"}}>
-                  <span className="prog-bar-val">{d.w}</span>
-                  <span className="prog-bar-label">{d.date.slice(5)}</span>
-                </div>);
-              })}
+          {chartData.length > 1 && <div style={{marginBottom:20}}>
+            <h4 className="st" style={{fontSize:13}}>📈 Evolución del peso</h4>
+            <div style={{background:"var(--cream)",borderRadius:"var(--rs)",padding:"14px 10px 22px"}}>
+              <WeightLineChart data={chartData}/>
             </div>
           </div>}
+
+          {/* Anthropometric section */}
+          <AntroSection patient={patient} onUpdate={onUpdate}/>
 
           {patient.notes && <div style={{background:"var(--cream)",borderRadius:8,padding:14}}><b style={{fontSize:12}}>📋 Notas:</b><p style={{fontSize:12,color:"var(--mid)",marginTop:4,lineHeight:1.6}}>{patient.notes}</p></div>}
         </div>}
@@ -746,43 +1747,116 @@ function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, on
 
         {/* INTERVIEW TAB */}
         {tab==="interview" && <div>
-          <h4 className="st" style={{fontSize:13}}>Respuestas del cuestionario inicial</h4>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <h4 className="st" style={{fontSize:13,marginBottom:0}}>Respuestas del cuestionario inicial</h4>
+            {patient.updatedAt && (
+              <span className="date-chip">📅 Última actualización: {fmtFecha(patient.updatedAt)}</span>
+            )}
+          </div>
           {questions.length===0 && <p style={{fontSize:13,color:"var(--mid)"}}>No hay preguntas configuradas.</p>}
           {questions.map(q=>(
             <div key={q.id} style={{marginBottom:14,paddingBottom:14,borderBottom:"1px solid var(--cream-dk)"}}>
               <div style={{fontSize:12,fontWeight:700,color:"var(--sage-dk)",marginBottom:4}}>{q.text}</div>
-              <div style={{fontSize:13,color:patient.answers?.[q.id]?"var(--char)":"var(--mid)"}}>{patient.answers?.[q.id]||"Sin respuesta"}</div>
+              <div style={{fontSize:13,color:patient.answers?.[q.id]?"var(--char)":"var(--mid)"}}>
+                {patient.answers?.[q.id]||<span style={{fontStyle:"italic"}}>Sin respuesta</span>}
+              </div>
             </div>
           ))}
         </div>}
 
         {/* PLAN TAB */}
         {tab==="plan" && <div>
-          <h4 className="st" style={{fontSize:13}}>Plan semanal asignado</h4>
-          {assignedTpl
-            ? <div style={{background:"var(--cream)",borderRadius:8,padding:14,marginBottom:16}}>
-                <div style={{fontWeight:700,fontSize:14,color:"var(--info)",marginBottom:4}}>{assignedTpl.name}</div>
-                {assignedTpl.description && <div style={{fontSize:12,color:"var(--mid)",marginBottom:10}}>{assignedTpl.description}</div>}
-                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
-                  {DAYS.map(d=><div key={d} style={{background:"#fff",borderRadius:6,padding:"6px 4px",fontSize:9,textAlign:"center"}}>
-                    <div style={{fontWeight:700,color:"var(--sage-dk)",marginBottom:3}}>{d.slice(0,3)}</div>
-                    {MEALS.map(m=>(assignedTpl.week[d]?.[m]||[]).length>0&&<div key={m} style={{fontSize:8,color:"var(--mid)"}}>{(assignedTpl.week[d]?.[m]||[]).map(id=>recipes.find(r=>r.id===id)?.name||'').join(', ')}</div>)}
-                  </div>)}
+
+          {/* ─ Saved personal plan summary ─ */}
+          {patient.personalWeek && (() => {
+            const tRecipes = Object.values(patient.personalWeek).reduce((a,d)=>a+Object.values(d).reduce((b,m)=>b+(m||[]).length,0),0);
+            const sl = buildShoppingList(patient.personalWeek, recipes, 1.2);
+            if (tRecipes === 0) return null;
+            return (
+              <div style={{background:"linear-gradient(90deg,rgba(58,92,58,.06),rgba(58,122,181,.06))",border:"1.5px solid var(--sage-lt)",borderRadius:"var(--r)",padding:14,marginBottom:20}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+                  <span style={{fontWeight:700,fontSize:13,color:"var(--sage-dk)"}}>✅ Plan personalizado activo</span>
+                  {patient.fecha_asignacion && <span className="date-chip">📅 Asignado: {fmtFecha(patient.fecha_asignacion)}</span>}
+                  {patient.fecha_lista_compra && <span className="date-chip">🛒 Lista: {fmtFecha(patient.fecha_lista_compra)}</span>}
                 </div>
-                <button className="btn btn-g btn-sm" style={{marginTop:10}} onClick={()=>onAssignTemplate(patient.id,null)}>✕ Quitar plan asignado</button>
-              </div>
-            : <p style={{fontSize:13,color:"var(--mid)",marginBottom:14}}>Sin plan asignado. Selecciona una plantilla:</p>}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
-            {weekTemplates.map(tpl=>(
-              <div key={tpl.id} className={"plan-tpl-card"+(patient.assignedTemplateId===tpl.id?" selected":"")} onClick={()=>onAssignTemplate(patient.id,tpl.id)}>
-                <div style={{fontWeight:700,fontSize:13,color:"var(--info)",marginBottom:3}}>{tpl.name}</div>
-                {tpl.description && <div style={{fontSize:11,color:"var(--mid)"}}>{tpl.description}</div>}
-                <div style={{fontSize:10,color:"var(--sage-dk)",marginTop:6}}>
-                  {Object.values(tpl.week||{}).reduce((a,day)=>a+Object.values(day||{}).reduce((b,m)=>b+(m||[]).length,0),0)} recetas asignadas
+                <div style={{fontSize:12,color:"var(--mid)",marginBottom:12}}>
+                  {tRecipes} recetas · {sl.length} ingredientes en lista de compra
+                </div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button className="btn btn-t btn-sm" onClick={()=>{
+                    const ok = openPrintWindow(buildMenuPDF(patient.personalWeek,recipes,{}));
+                    if(ok)showToast("PDF menú — Ctrl+P para guardar","info");
+                    else showToast("Activa ventanas emergentes","error");
+                  }}>🖨️ PDF Menú + Recetas</button>
+                  <button className="btn btn-p btn-sm" onClick={()=>{
+                    onUpdate && onUpdate({...patient, fecha_lista_compra:new Date().toISOString()});
+                    const ok = openPrintWindow(buildShopPDF(sl,true,patient.personalWeek,recipes,{}));
+                    if(ok)showToast("PDF lista de compra — Ctrl+P","info");
+                    else showToast("Activa ventanas emergentes","error");
+                  }}>🛒 PDF Lista Compra</button>
                 </div>
               </div>
-            ))}
-            {weekTemplates.length===0 && <p style={{fontSize:12,color:"var(--mid)"}}>Crea plantillas semanales en el Planificador → "Guardar como plantilla".</p>}
+            );
+          })()}
+
+          {/* ─ Plan editor ─ */}
+          <PatientPlanEditor
+            patient={patient}
+            recipes={recipes}
+            weekTemplates={weekTemplates}
+            onUpdate={onUpdate}
+            onSaveTemplate={onSaveTemplate}
+            profile={{}}
+            showToast={showToast}
+          />
+
+          {/* ─ Assign from existing templates ─ */}
+          <div style={{marginTop:20}}>
+            <h4 className="st" style={{fontSize:13}}>📚 O asignar plantilla existente</h4>
+            {assignedTpl && (
+              <div style={{background:"var(--cream)",borderRadius:8,padding:14,marginBottom:14}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
+                  <div style={{fontWeight:700,fontSize:14,color:"var(--info)"}}>{assignedTpl.name}</div>
+                  {assignedTpl.es_plantilla && <span className="badge bg" style={{fontSize:10}}>📋 Plantilla</span>}
+                </div>
+                {assignedTpl.description && <div style={{fontSize:12,color:"var(--mid)",marginBottom:8}}>{assignedTpl.description}</div>}
+                <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:11,marginBottom:10}}>
+                  {patient.fecha_asignacion && <span>📅 <b>Asignada:</b> {fmtFecha(patient.fecha_asignacion)}</span>}
+                  {patient.fecha_lista_compra && <span>🛒 <b>Lista compra:</b> {fmtFecha(patient.fecha_lista_compra)}</span>}
+                </div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button className="btn btn-t btn-sm" onClick={()=>{
+                    const ok=openPrintWindow(buildMenuPDF(assignedTpl.week,recipes,{}));
+                    if(ok)showToast("PDF menú — Ctrl+P","info");else showToast("Activa ventanas emergentes","error");
+                  }}>🖨️ PDF Menú</button>
+                  <button className="btn btn-p btn-sm" onClick={()=>{
+                    const sl=buildShoppingList(assignedTpl.week,recipes,1.2);
+                    onUpdate&&onUpdate({...patient,fecha_lista_compra:new Date().toISOString()});
+                    const ok=openPrintWindow(buildShopPDF(sl,true,assignedTpl.week,recipes,{}));
+                    if(ok)showToast("PDF lista compra — Ctrl+P","info");else showToast("Activa ventanas emergentes","error");
+                  }}>🛒 PDF Lista</button>
+                  <button className="btn btn-g btn-sm" onClick={()=>onAssignTemplate(patient.id,null)}>✕ Quitar plantilla</button>
+                </div>
+              </div>
+            )}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:10}}>
+              {weekTemplates.map(tpl=>(
+                <div key={tpl.id} className={"plan-tpl-card"+(patient.assignedTemplateId===tpl.id?" selected":"")}
+                  onClick={()=>{
+                    onAssignTemplate(patient.id,tpl.id);
+                    onUpdate&&onUpdate({...patient,assignedTemplateId:tpl.id,fecha_asignacion:new Date().toISOString()});
+                  }}>
+                  <div style={{fontWeight:700,fontSize:13,color:"var(--info)",marginBottom:3}}>{tpl.name}</div>
+                  {tpl.es_plantilla&&<span className="badge bg" style={{fontSize:9,marginBottom:4,display:"inline-block"}}>📋 Plantilla</span>}
+                  {tpl.description&&<div style={{fontSize:11,color:"var(--mid)"}}>{tpl.description}</div>}
+                  <div style={{fontSize:10,color:"var(--sage-dk)",marginTop:5}}>
+                    {Object.values(tpl.week||{}).reduce((a,day)=>a+Object.values(day||{}).reduce((b,m)=>b+(m||[]).length,0),0)} recetas
+                  </div>
+                  {tpl.createdAt&&<div style={{fontSize:9,color:"var(--mid)",marginTop:2}}>Creada: {fmtFecha(tpl.createdAt)}</div>}
+                </div>
+              ))}
+              {weekTemplates.length===0&&<p style={{fontSize:12,color:"var(--mid)"}}>Crea plantillas en el Planificador o diseña arriba el plan personalizado.</p>}
+            </div>
           </div>
         </div>}
       </div>
@@ -792,18 +1866,27 @@ function PatientDetail({ patient, questions, recipes, weekTemplates, onClose, on
 }
 
 /* ─── PATIENTS VIEW ─────────────────────────────────────────────────────── */
-function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUpdate, onDelete, onAddCheckin, onAssignTemplate, showToast }) {
+function PatientsView({ patients, questions, recipes, weekTemplates, subscriptions, onAdd, onUpdate, onDelete, onAddCheckin, onAssignTemplate, onSaveTemplate, showToast }) {
   const [form, setForm] = useState(false);
   const [edit, setEdit] = useState(null);
   const [detail, setDetail] = useState(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [localQuestions, setLocalQuestions] = useState(questions);
   const [q, setQ] = useState("");
+  const [filterRevisado, setFilterRevisado] = useState("all"); // "all"|"revisado"|"pendiente"
 
   // Keep local questions in sync
   useEffect(()=>setLocalQuestions(questions),[questions]);
 
-  const filtered = patients.filter(p => !q || p.name.toLowerCase().includes(q.toLowerCase()));
+  const filtered = patients.filter(p => {
+    if (q && !p.name.toLowerCase().includes(q.toLowerCase())) return false;
+    if (filterRevisado === "revisado" && !p.revisado) return false;
+    if (filterRevisado === "pendiente" && p.revisado) return false;
+    return true;
+  });
+
+  const nRevisados = patients.filter(p=>p.revisado).length;
+  const nPendientes = patients.filter(p=>!p.revisado).length;
 
   return (
     <div>
@@ -818,6 +1901,9 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
 
       <div className="filter-bar">
         <input className="fi" style={{maxWidth:260}} placeholder="🔍 Buscar paciente..." value={q} onChange={e=>setQ(e.target.value)}/>
+        <span className={"filter-chip"+(filterRevisado==="all"?" on":"")} onClick={()=>setFilterRevisado("all")}>Todos ({patients.length})</span>
+        <span className={"filter-chip"+(filterRevisado==="revisado"?" on":"")} onClick={()=>setFilterRevisado("revisado")} style={filterRevisado==="revisado"?{background:"var(--sage-dk)",color:"#fff",borderColor:"var(--sage-dk)"}:{}}>✓ Revisados ({nRevisados})</span>
+        <span className={"filter-chip"+(filterRevisado==="pendiente"?" on":"")} onClick={()=>setFilterRevisado("pendiente")} style={filterRevisado==="pendiente"?{background:"var(--terra)",color:"#fff",borderColor:"var(--terra)"}:{}}>⏳ Pendientes ({nPendientes})</span>
       </div>
 
       {filtered.length===0
@@ -835,12 +1921,24 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
                 <div className="pt-card" key={p.id} onClick={()=>setDetail(p)}>
                   <div className="pt-head">
                     <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                      {p.photo
-                        ? <img src={p.photo} style={{width:44,height:44,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>
-                        : <div style={{width:44,height:44,borderRadius:"50%",background:"rgba(255,255,255,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>👤</div>}
-                      <div>
-                        <h3>{p.name}</h3>
-                        <div className="pt-sub">{[p.age&&p.age+"a",p.sex==="M"?"Hombre":"Mujer",p.weight&&p.weight+"kg"].filter(Boolean).join(" · ")}</div>
+                      <img
+                        src={p.photo || getDefaultAvatar(p.genero||p.sex)}
+                        style={{width:44,height:44,borderRadius:"50%",objectFit:"cover",flexShrink:0}}
+                      />
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <h3 style={{margin:0}}>{p.name}</h3>
+                          <span className={"badge-revisado "+(p.revisado?"ok":"pending")} style={{fontSize:9}}>
+                            {p.revisado?"✓":"⏳"}
+                          </span>
+                        </div>
+                        <div className="pt-sub">
+                          {[
+                            (calcEdad(p.birthdate)??p.age) && ((calcEdad(p.birthdate)??p.age)+"a"),
+                            p.sex==="M"?"Hombre":"Mujer",
+                            p.weight && p.weight+"kg"
+                          ].filter(Boolean).join(" · ")}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -849,19 +1947,26 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
                       <span className="kcal-big" style={{color:goalObj2?.color||"var(--sage-dk)",fontSize:24}}>{target2}</span>
                       <div><span className="kcal-label">kcal/día</span><br/><span style={{fontSize:10,color:goalObj2?.color||"var(--mid)",fontWeight:600}}>{goalObj2?.label}</span></div>
                     </div>}
+                    {p.birthdate && <div className="pt-stat">🎂 <b>{fmtFecha(p.birthdate)}</b>{(calcEdad(p.birthdate))!==null && <span style={{color:"var(--mid)",marginLeft:4}}>({calcEdad(p.birthdate)} años)</span>}</div>}
+                    {p.phone && <div className="pt-stat">📱 <b>{p.phone}</b></div>}
+                    {p.contrato && <div className="pt-stat">📄 <b style={{color:"var(--purple)"}}>{p.contrato}</b></div>}
                     {lastH && <div className="pt-stat">⚖️ Último registro: <b>{lastH.weight} kg</b>
                       {diff && <span className={"hist-delta "+(Number(diff)<0?"delta-down":Number(diff)>0?"delta-up":"delta-same")} style={{marginLeft:4}}>{Number(diff)>0?"+":""}{diff} kg</span>}
                     </div>}
-                    <div className="pt-stat">📋 {p.history?.length||0} registros · {weekTemplates.find(t=>t.id===p.assignedTemplateId)?<span style={{color:"var(--info)"}}>Plan: {weekTemplates.find(t=>t.id===p.assignedTemplateId).name}</span>:"Sin plan asignado"}</div>
+                    <div className="pt-stat" style={{fontSize:11}}>
+                      📋 {p.history?.length||0} registros · {weekTemplates.find(t=>t.id===p.assignedTemplateId)
+                        ? <span style={{color:"var(--info)"}}>Plan: {weekTemplates.find(t=>t.id===p.assignedTemplateId).name}</span>
+                        : "Sin plan asignado"}
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>}
 
-      {(form||edit) && <PatientForm patient={edit} questions={localQuestions}
+      {(form||edit) && <PatientForm patient={edit} questions={localQuestions} subscriptions={subscriptions||[]}
         onSave={p=>{edit?onUpdate(p):onAdd(p);showToast(edit?"Paciente actualizado ✓":"Paciente registrado ✓");setForm(false);setEdit(null);}}
-        onClose={()=>{setForm(false);setEdit(null);}}/>}
+        onClose={()=>{setForm(false);setEdit(null);}}/> }
 
       {detail && <PatientDetail
         patient={patients.find(p=>p.id===detail.id)||detail}
@@ -870,7 +1975,10 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
         onEdit={p=>{setDetail(null);setEdit(p);}}
         onDelete={id=>{onDelete(id);setDetail(null);showToast("Paciente eliminado");}}
         onAddCheckin={onAddCheckin}
-        onAssignTemplate={onAssignTemplate}/>}
+        onAssignTemplate={onAssignTemplate}
+        onSaveTemplate={onSaveTemplate}
+        showToast={showToast}
+        onUpdate={p=>{onUpdate(p);showToast("Paciente actualizado ✓");}}/>}
 
       {builderOpen && <InterviewBuilder questions={localQuestions}
         onSave={qs=>{setLocalQuestions(qs);/* propagate up via showToast */showToast("Cuestionario guardado ✓");}}
@@ -885,6 +1993,7 @@ function PatientsView({ patients, questions, recipes, weekTemplates, onAdd, onUp
 function SaveTemplateModal({ week, recipes, onSave, onClose }) {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
+  const [esPlantilla, setEsPlantilla] = useState(false);
   const usedCount = Object.values(week).reduce((a,d)=>a+Object.values(d).reduce((b,m)=>b+(m||[]).length,0),0);
   return (
     <div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}>
@@ -893,9 +2002,26 @@ function SaveTemplateModal({ week, recipes, onSave, onClose }) {
         <p style={{fontSize:12,color:"var(--mid)",marginBottom:16}}>{usedCount} recetas asignadas en el planificador actual.</p>
         <div className="fg"><label className="fl">Nombre de la plantilla *</label><input className="fi" autoFocus value={name} onChange={e=>setName(e.target.value)} placeholder="Plan Mediterráneo semana 1"/></div>
         <div className="fg"><label className="fl">Descripción (opcional)</label><textarea className="fta" value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Plan de 1800 kcal, alta proteína..."/></div>
+        <div className="fg">
+          <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",fontSize:13}}>
+            <input type="checkbox" checked={esPlantilla} onChange={e=>setEsPlantilla(e.target.checked)} style={{width:16,height:16,accentColor:"var(--sage-dk)"}}/>
+            <div>
+              <b>Marcar como plantilla reutilizable</b>
+              <div style={{fontSize:11,color:"var(--mid)",marginTop:1}}>Se mostrará como plantilla base al asignar planes a pacientes</div>
+            </div>
+          </label>
+        </div>
         <div className="f g8" style={{justifyContent:"flex-end"}}>
           <button className="btn btn-g" onClick={onClose}>Cancelar</button>
-          <button className="btn btn-p" disabled={!name.trim()} onClick={()=>{onSave({id:Date.now(),name,description:desc,week:JSON.parse(JSON.stringify(week)),createdAt:new Date().toISOString()});onClose();}}>💾 Guardar plantilla</button>
+          <button className="btn btn-p" disabled={!name.trim()} onClick={()=>{
+            onSave({
+              id: Date.now(), name, description: desc,
+              week: JSON.parse(JSON.stringify(week)),
+              es_plantilla: esPlantilla,
+              createdAt: new Date().toISOString(),
+            });
+            onClose();
+          }}>💾 Guardar{esPlantilla?" plantilla":" semana"}</button>
         </div>
       </div>
     </div>
@@ -921,7 +2047,92 @@ const perP=(m,p)=>({kcal:Math.round(m.kcal/p),prot:Math.round(m.prot/p),carbs:Ma
 const dayM=(week,day,recs)=>{let t={kcal:0,prot:0,carbs:0,fat:0};MEALS.forEach(m=>(week[day]?.[m]||[]).forEach(id=>{const r=recs.find(x=>x.id===id);if(!r)return;const v=perP(sumM(r.ingredients),r.portions);Object.keys(t).forEach(k=>t[k]+=v[k]);}));return t;};
 const weekM=(week,recs)=>{let t={kcal:0,prot:0,carbs:0,fat:0};DAYS.forEach(d=>{const m=dayM(week,d,recs);Object.keys(t).forEach(k=>t[k]+=m[k]);});return t;};
 const buildShoppingList=(week,recs,margin=1.2)=>{const map={};DAYS.forEach(day=>MEALS.forEach(meal=>{(week[day]?.[meal]||[]).forEach(id=>{const r=recs.find(x=>x.id===id);if(!r)return;r.ingredients.forEach(ing=>{const key=ing.name.toLowerCase().trim()+'||'+ing.unit;const qty=Number(ing.qty)||0;if(map[key])map[key].qty+=qty;else map[key]={name:ing.name,qty,unit:ing.unit};});});}));return Object.values(map).map(item=>({...item,qtyFinal:Math.ceil(item.qty*margin)})).sort((a,b)=>a.name.localeCompare(b.name));};
-const parsePasted=(text)=>{const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);return lines.map((line,i)=>{const m=line.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l|taza|cucharada|cucharadita|ud|pieza)?\s+(.+)$/i);const name=m?m[3].trim():line;const qty=m?parseFloat(m[1].replace(',','.')):1;const unit=m&&m[2]?m[2].toLowerCase():'ud';return{id:Date.now()+i+Math.random(),name,qty,unit,kcal:'',prot:'',carbs:'',fat:'',_auto:false,_k100:null,_p100:null,_c100:null,_f100:null};});};
+/* ─── INGREDIENT PARSER (versión mejorada) ──────────────────────────────── */
+const ES_NUMS = { un:1,una:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,media:0.5,medio:0.5,cuarto:0.25 };
+const UNIT_MAP = {
+  g:'g',gr:'g',gramo:'g',gramos:'g',
+  kg:'kg',kilogramo:'kg',kilogramos:'kg',
+  ml:'ml',mililitro:'ml',mililitros:'ml',
+  l:'l',litro:'l',litros:'l',
+  cucharada:'cucharada',cucharadas:'cucharada',
+  cucharadita:'cucharadita',cucharaditas:'cucharadita',
+  taza:'taza',tazas:'taza',
+  unidad:'ud',unidades:'ud',pieza:'ud',piezas:'ud',ud:'ud',
+  lata:'ud',bote:'ud',sobre:'ud',bolsa:'ud',
+  ralladura:'ud',pizca:'ud',puñado:'ud',diente:'ud',dientes:'ud',
+};
+// Words to strip from names so matching is cleaner
+const STRIP_WORDS = ['fresco','fresca','natural','crudo','cruda','cocido','cocida','hervido','hervida','asado','asada','picado','picada','troceado','grande','pequeño','pequeña','mediano','mediana'];
+
+const parsePasted = (text) => {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  return lines.map((line, i) => {
+    // Strip bullets: *, -, •, ·, numbers with . or )
+    let raw = line.replace(/^[\*\-•·]\s*/, '').replace(/^\d+[\.\)]\s*/, '').trim();
+
+    // Regex: optional_qty  optional_unit  optional_"de"  rest_of_name
+    // Handles "125 g de harina de trigo", "2 huevos", "1 cucharada de aceite", "Ralladura de un limón"
+    const rx = /^([\d]+(?:[.,]\d+)?|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|media|medio|cuarto)?\s*(g|gr|gramos?|kg|kilogramos?|ml|mililitros?|l|litros?|cucharadas?|cucharaditas?|tazas?|unidades?|piezas?|ud|lata|bote|sobre|bolsa|dientes?|pizcas?|puñados?|ralladuras?)\s*(?:de\s+)?(.+)$/i;
+    const rx2 = /^([\d]+(?:[.,]\d+)?|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|media|medio|cuarto)\s+(?:de\s+)?(.+)$/i;
+
+    let qty = 1, unit = 'g', name = raw;
+
+    const m = raw.match(rx);
+    const m2 = !m && raw.match(rx2);
+
+    if (m) {
+      const rawQ = m[1]; const rawU = m[2]; const rawN = m[3];
+      if (rawQ) qty = (ES_NUMS[rawQ.toLowerCase()] ?? parseFloat(rawQ.replace(',', '.'))) || 1;
+      if (rawU) unit = UNIT_MAP[rawU.toLowerCase()] || 'ud';
+      if (rawN) name = rawN.trim();
+    } else if (m2) {
+      const rawQ = m2[1]; const rawN = m2[2];
+      if (rawQ) qty = (ES_NUMS[rawQ.toLowerCase()] ?? parseFloat(rawQ.replace(',', '.'))) || 1;
+      name = rawN.trim();
+      // Guess unit from quantity
+      unit = (qty <= 12) ? 'ud' : 'g';
+    }
+
+    // Clean name: remove trailing commas/periods, parenthetical notes, adjectives
+    name = name
+      .replace(/[,.]$/, '')
+      .replace(/\s*\(.*?\)\s*$/, '')   // remove "(anisetes)", "(opcional)", etc.
+      .trim();
+
+    // Clean name for FOOD_DB lookup (strip descriptive adjectives)
+    const searchName = STRIP_WORDS.reduce((n, w) => n.replace(new RegExp('\\b' + w + '\\b', 'i'), ''), name).trim();
+
+    // Auto-lookup in FOOD_DB
+    const matches = searchLocal(searchName);
+    const best = matches[0];
+
+    const factor = (unit === 'g' || unit === 'ml' || unit === 'l' || unit === 'kg')
+      ? qty / 100
+      : qty / 100; // for 'ud' units we still divide by 100 since FOOD_DB is per100g
+
+    if (best) {
+      return {
+        id: Date.now() + i + Math.random(),
+        name, qty, unit,
+        kcal:  Math.round(best.kcal100  * factor),
+        prot:  Math.round(best.prot100  * factor * 10) / 10,
+        carbs: Math.round(best.carbs100 * factor * 10) / 10,
+        fat:   Math.round(best.fat100   * factor * 10) / 10,
+        _auto: true,
+        _k100: best.kcal100, _p100: best.prot100, _c100: best.carbs100, _f100: best.fat100,
+        _dbName: best.name,   // for the "matched as" indicator
+      };
+    }
+
+    return {
+      id: Date.now() + i + Math.random(),
+      name, qty, unit,
+      kcal:'', prot:'', carbs:'', fat:'',
+      _auto: false,
+      _k100: null, _p100: null, _c100: null, _f100: null,
+    };
+  });
+};
 const importURL=async(url)=>{const proxy='https://api.allorigins.win/get?url='+encodeURIComponent(url);const res=await fetch(proxy,{signal:AbortSignal.timeout(12000)});const data=await res.json();const html=data.contents||'';const ldBlocks=html.match(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)||[];for(const block of ldBlocks){try{const inner=block.replace(/<script[^>]*>/i,'').replace(/<\/script>/i,'');const json=JSON.parse(inner);const schemas=Array.isArray(json)?json:[json];for(const s of schemas){const recipe=s['@type']==='Recipe'?s:s['@graph']?.find(x=>x['@type']==='Recipe');if(recipe?.recipeIngredient?.length){return{title:recipe.name||'',ingredients:recipe.recipeIngredient.map((line,i)=>({...parsePasted(line)[0],id:Date.now()+i+Math.random()}))};} }}catch{}}throw new Error('No se encontraron ingredientes. Pega la lista manualmente.');};
 
 /* ─── DOWNLOAD ────────────────────────────────────────────────────────────── */
@@ -1067,9 +2278,148 @@ function BarcodeScanner({onDetect,onClose}){const vidRef=useRef(null);const done
 /* ─── FOOD SEARCH ─────────────────────────────────────────────────────────── */
 function FoodSearch({onSelect,onClose}){const[q,setQ]=useState("");const[results,setRes]=useState([]);const[scanOn,setScan]=useState(false);const[status,setSt]=useState("Escribe el nombre de un alimento");const[scMsg,setScMsg]=useState("");const[scLoad,setScLd]=useState(false);const timer=useRef(null);const doSearch=query=>{if(!query||query.length<2){setRes([]);setSt("Escribe al menos 2 letras");return;}const found=searchLocal(query);setRes(found);setSt(found.length?found.length+" resultado(s):":"Sin resultados.");};const handleInput=v=>{setQ(v);clearTimeout(timer.current);timer.current=setTimeout(()=>doSearch(v),200);};const handleBarcode=async code=>{setScan(false);setScLd(true);setScMsg("Buscando "+code+"...");try{const r=await fetch("https://world.openfoodfacts.org/api/v2/product/"+code+".json?fields=product_name,nutriments");const d=await r.json();if(d.status===1&&d.product){const n=d.product.nutriments||{};const kcal=n["energy-kcal_100g"]||(n.energy_100g?n.energy_100g/4.184:0);if(kcal>0){const food={name:(d.product.product_name||"Producto").trim(),kcal100:Math.round(kcal),prot100:Math.round((n.proteins_100g||0)*10)/10,carbs100:Math.round((n.carbohydrates_100g||0)*10)/10,fat100:Math.round((n.fat_100g||0)*10)/10};setRes([food]);setQ(food.name);setScMsg("Producto encontrado");setSt("Clic para seleccionar:");}else setScMsg("Sin datos nutricionales.");}else setScMsg("Codigo no encontrado.");}catch{setScMsg("Sin conexion. Busca por nombre.");}setScLd(false);};return(<>{scanOn&&<BarcodeScanner onDetect={handleBarcode} onClose={()=>setScan(false)}/>}<div className="sp"><div className="f g8 ac mb16" style={{flexWrap:"wrap"}}><input className="fi" autoFocus style={{flex:1,minWidth:180,padding:"8px 12px",fontSize:13}} placeholder="Buscar alimento..." value={q} onChange={e=>handleInput(e.target.value)}/><button className="btn btn-i btn-sm" onClick={()=>setScan(true)}>📷 Escanear</button><button className="btn btn-g btn-sm" onClick={onClose}>✕ Cerrar</button></div>{scMsg&&<p style={{fontSize:12,fontWeight:600,marginBottom:8,color:"var(--sage-dk)"}}>{scMsg}</p>}{scLoad&&<div className="f ac g8 ts tm"><div className="sp2 sp2-dk"/>Buscando...</div>}<p style={{fontSize:11,color:"var(--mid)",marginBottom:6}}>{status}</p>{results.length>0&&<div className="fl-list">{results.map((f,i)=><div key={i} className="fl-item" onClick={()=>onSelect(f)}><div style={{flex:1}}><div className="fl-name">{f.name}</div><div style={{fontSize:10,color:"var(--mid)"}}>por 100g</div></div><div className="fl-macros"><span><b>{f.kcal100}</b>kcal</span><span><b>{f.prot100}g</b>prot</span><span><b>{f.carbs100}g</b>HC</span><span><b>{f.fat100}g</b>grs</span></div></div>)}</div>}</div></>);}
 
-/* ─── ING ROW ─────────────────────────────────────────────────────────────── */
+/* ─── ING ROW (con autocompletado inline) ───────────────────────────────── */
 const blankIng=()=>({id:Date.now()+Math.random(),name:"",qty:"",unit:"g",kcal:"",prot:"",carbs:"",fat:"",_auto:false,_k100:null,_p100:null,_c100:null,_f100:null});
-function IngRow({ing,idx,onChange,onRemove}){const[open,setOpen]=useState(false);const[flash,setFlash]=useState(false);const set=(k,v)=>onChange(idx,k,v);const handleQty=v=>{set("qty",v);if(ing._k100!=null&&v)onChange(idx,"__recalc",Number(v)/100);};const handleSelect=food=>{setOpen(false);const qty=Number(ing.qty)||100;onChange(idx,"__fill",{food,qty});setFlash(true);setTimeout(()=>setFlash(false),900);};return(<>{open&&<tr><td colSpan={9} style={{padding:"4px 0 10px"}}><FoodSearch onSelect={handleSelect} onClose={()=>setOpen(false)}/></td></tr>}<tr className={flash?"flash-row":""}><td style={{minWidth:160}}><div className="f g8 ac"><input className={"ii"+(ing._auto?" auto":"")} style={{flex:1}} value={ing.name} placeholder="Ingrediente" onChange={e=>set("name",e.target.value)}/><button onClick={()=>setOpen(o=>!o)} style={{background:open?"var(--sage-dk)":"var(--info)",color:"#fff",border:"none",borderRadius:6,padding:"5px 8px",cursor:"pointer",fontSize:11,flexShrink:0,fontWeight:700}} title="Buscar en base de datos">{open?"✕":"🔍"}</button></div></td><td style={{width:62}}><input className="ii" type="number" value={ing.qty} placeholder="100" onChange={e=>handleQty(e.target.value)}/></td><td style={{width:76}}><select className="ii" value={ing.unit} onChange={e=>set("unit",e.target.value)}><option>g</option><option>ml</option><option>ud</option><option>cucharada</option><option>taza</option></select></td>{["kcal","prot","carbs","fat"].map(k=><td key={k} style={{width:58}}><input className={"ii"+(ing._auto?" auto":"")} type="number" value={ing[k]} placeholder="0" onChange={e=>{set(k,e.target.value);set("_auto",false);set("_k100",null);}}/></td>)}<td style={{width:26,textAlign:"center"}}>{ing._auto?<span style={{fontSize:11,color:"var(--sage-dk)"}}>✓</span>:<span style={{color:"#ddd"}}>—</span>}</td><td style={{width:28}}><button style={{background:"none",border:"none",color:"var(--danger)",cursor:"pointer",fontSize:13,padding:"3px"}} onClick={()=>onRemove(idx)}>🗑</button></td></tr></>);}
+
+function IngRow({ing,idx,onChange,onRemove}){
+  const [open, setOpen] = useState(false);          // full FoodSearch panel
+  const [flash, setFlash] = useState(false);
+  const [sugg, setSugg] = useState([]);              // inline suggestions
+  const [showSugg, setShowSugg] = useState(false);
+  const [acIdx, setAcIdx] = useState(-1);            // keyboard nav
+  const blurTimer = useRef(null);
+
+  const set = (k,v) => onChange(idx, k, v);
+
+  const handleQty = v => {
+    set("qty", v);
+    if (ing._k100 != null && v) onChange(idx, "__recalc", Number(v) / 100);
+  };
+
+  const handleSelect = food => {
+    setOpen(false);
+    const qty = Number(ing.qty) || 100;
+    onChange(idx, "__fill", { food, qty });
+    setFlash(true); setTimeout(() => setFlash(false), 900);
+  };
+
+  // Inline autocomplete on name change
+  const handleNameChange = v => {
+    set("name", v);
+    if (v.length >= 2) {
+      const found = searchLocal(v);
+      setSugg(found.slice(0, 6));
+      setShowSugg(found.length > 0);
+      setAcIdx(-1);
+    } else {
+      setSugg([]); setShowSugg(false);
+    }
+  };
+
+  const pickSugg = (food) => {
+    setShowSugg(false); setSugg([]);
+    const qty = Number(ing.qty) || 100;
+    onChange(idx, "__fill", { food, qty });
+    setFlash(true); setTimeout(() => setFlash(false), 900);
+  };
+
+  const handleKeyDown = e => {
+    if (!showSugg) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setAcIdx(i => Math.min(i+1, sugg.length-1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setAcIdx(i => Math.max(i-1, -1)); }
+    else if (e.key === "Enter" && acIdx >= 0) { e.preventDefault(); pickSugg(sugg[acIdx]); }
+    else if (e.key === "Escape") { setShowSugg(false); }
+  };
+
+  const onBlur = () => { blurTimer.current = setTimeout(() => setShowSugg(false), 150); };
+  const onFocus = () => { clearTimeout(blurTimer.current); if (ing.name.length >= 2 && sugg.length) setShowSugg(true); };
+
+  return (
+    <>
+      {open && (
+        <tr><td colSpan={9} style={{padding:"4px 0 10px"}}>
+          <FoodSearch onSelect={handleSelect} onClose={()=>setOpen(false)}/>
+        </td></tr>
+      )}
+      <tr className={flash ? "flash-row" : ""}>
+        <td style={{minWidth:180, position:"relative"}}>
+          <div className="f g8 ac">
+            <div className="ac-wrap">
+              <input
+                className={"ii" + (ing._auto ? " auto" : "")}
+                style={{width:"100%"}}
+                value={ing.name}
+                placeholder="Ingrediente"
+                onChange={e => handleNameChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onFocus={onFocus}
+                onBlur={onBlur}
+              />
+              {showSugg && sugg.length > 0 && (
+                <div className="ac-drop">
+                  {sugg.map((f, si) => (
+                    <div
+                      key={si}
+                      className={"ac-item" + (acIdx === si ? " active" : "")}
+                      onMouseDown={e => { e.preventDefault(); pickSugg(f); }}
+                    >
+                      <div className="ac-name">{f.name}</div>
+                      <div className="ac-macros">
+                        <span><b>{f.kcal100}</b>kcal</span>
+                        <span><b>{f.prot100}g</b>P</span>
+                        <span><b>{f.carbs100}g</b>HC</span>
+                        <span><b>{f.fat100}g</b>G</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setOpen(o => !o)}
+              style={{background:open?"var(--sage-dk)":"var(--info)",color:"#fff",border:"none",borderRadius:6,padding:"5px 8px",cursor:"pointer",fontSize:11,flexShrink:0,fontWeight:700}}
+              title="Búsqueda avanzada + escáner"
+            >{open ? "✕" : "🔍"}</button>
+          </div>
+          {ing._dbName && !showSugg && (
+            <div style={{fontSize:9,color:"var(--sage-dk)",marginTop:2,paddingLeft:2}}>
+              ✓ {ing._dbName}
+            </div>
+          )}
+        </td>
+        <td style={{width:62}}>
+          <input className="ii" type="number" value={ing.qty} placeholder="100" onChange={e=>handleQty(e.target.value)}/>
+        </td>
+        <td style={{width:82}}>
+          <select className="ii" value={ing.unit} onChange={e=>set("unit",e.target.value)}>
+            <option value="g">g</option>
+            <option value="ml">ml</option>
+            <option value="ud">ud</option>
+            <option value="cucharada">cuch.</option>
+            <option value="cucharadita">cuch.ta</option>
+            <option value="taza">taza</option>
+            <option value="kg">kg</option>
+            <option value="l">l</option>
+          </select>
+        </td>
+        {["kcal","prot","carbs","fat"].map(k=>(
+          <td key={k} style={{width:58}}>
+            <input className={"ii"+(ing._auto?" auto":"")} type="number" value={ing[k]} placeholder="0"
+              onChange={e=>{set(k,e.target.value);set("_auto",false);set("_k100",null);}}/>
+          </td>
+        ))}
+        <td style={{width:26,textAlign:"center"}}>
+          {ing._auto
+            ? <span style={{fontSize:13,color:"var(--sage-dk)"}} title="Macros calculados automáticamente">✓</span>
+            : <span style={{color:"#ddd"}}>—</span>}
+        </td>
+        <td style={{width:28}}>
+          <button style={{background:"none",border:"none",color:"var(--danger)",cursor:"pointer",fontSize:13,padding:"3px"}} onClick={()=>onRemove(idx)}>🗑</button>
+        </td>
+      </tr>
+    </>
+  );
+}
 
 /* ─── IMAGE UPLOAD ────────────────────────────────────────────────────────── */
 function ImgUpload({value,onChange,label="Imagen del plato"}){
@@ -1087,53 +2437,191 @@ function ImgUpload({value,onChange,label="Imagen del plato"}){
 
 /* ─── RECIPE FORM ─────────────────────────────────────────────────────────── */
 function RecipeForm({recipe,onSave,onClose,showToast}){
-  const[form,setForm]=useState(()=>recipe?{...recipe,ingredients:recipe.ingredients.map(i=>({...blankIng(),...i}))}:{name:"",portions:1,categoria:"",origen:"",dificultad:"",instructions:"",image:"",ingredients:[blankIng()]});
-  const[ingMode,setIngMode]=useState("search");
-  const[pasteText,setPasteText]=useState("");const[urlInput,setUrlInput]=useState("");const[urlLoading,setUrlLoad]=useState(false);
+  const[form,setForm]=useState(()=>recipe
+    ?{...recipe,ingredients:recipe.ingredients.map(i=>({...blankIng(),...i}))}
+    :{name:"",portions:1,categoria:"",origen:"",dificultad:"",instructions:"",image:"",ingredients:[blankIng()]}
+  );
+  const[ingMode,setIngMode]=useState("search"); // "search" | "paste"
+  const[pasteText,setPasteText]=useState("");
+
   const sf=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const onChange=(idx,key,val)=>{setForm(f=>{const ings=[...f.ingredients];if(key==="__fill"){const{food,qty}=val;const r=qty/100;ings[idx]={...ings[idx],name:food.name,qty,unit:"g",kcal:Math.round(food.kcal100*r),prot:Math.round(food.prot100*r*10)/10,carbs:Math.round(food.carbs100*r*10)/10,fat:Math.round(food.fat100*r*10)/10,_auto:true,_k100:food.kcal100,_p100:food.prot100,_c100:food.carbs100,_f100:food.fat100};}else if(key==="__recalc"){const r=val;if(ings[idx]._k100==null)return f;ings[idx]={...ings[idx],kcal:Math.round(ings[idx]._k100*r),prot:Math.round(ings[idx]._p100*r*10)/10,carbs:Math.round(ings[idx]._c100*r*10)/10,fat:Math.round(ings[idx]._f100*r*10)/10};}else{ings[idx]={...ings[idx],[key]:val};}return{...f,ingredients:ings};});};
-  const applyPaste=()=>{if(!pasteText.trim())return;const parsed=parsePasted(pasteText);setForm(f=>({...f,ingredients:[...f.ingredients.filter(i=>i.name.trim()),...parsed]}));setPasteText("");showToast(parsed.length+" ingredientes añadidos");setIngMode("search");};
-  const applyURL=async()=>{if(!urlInput.trim())return;setUrlLoad(true);try{const result=await importURL(urlInput);if(result.ingredients.length){setForm(f=>({...f,name:f.name||result.title,ingredients:[...f.ingredients.filter(i=>i.name.trim()),...result.ingredients]}));showToast(result.ingredients.length+" ingredientes importados");setUrlInput("");setIngMode("search");}else showToast("No se encontraron ingredientes","error");}catch(e){showToast(e.message||"Error","error");}setUrlLoad(false);};
+
+  const onChange=(idx,key,val)=>{setForm(f=>{
+    const ings=[...f.ingredients];
+    if(key==="__fill"){
+      const{food,qty}=val; const r=qty/100;
+      ings[idx]={...ings[idx],name:food.name,qty,unit:"g",
+        kcal:Math.round(food.kcal100*r),
+        prot:Math.round(food.prot100*r*10)/10,
+        carbs:Math.round(food.carbs100*r*10)/10,
+        fat:Math.round(food.fat100*r*10)/10,
+        _auto:true,_k100:food.kcal100,_p100:food.prot100,_c100:food.carbs100,_f100:food.fat100,
+        _dbName:food.name};
+    } else if(key==="__recalc"){
+      const r=val; if(ings[idx]._k100==null)return f;
+      ings[idx]={...ings[idx],
+        kcal:Math.round(ings[idx]._k100*r),
+        prot:Math.round(ings[idx]._p100*r*10)/10,
+        carbs:Math.round(ings[idx]._c100*r*10)/10,
+        fat:Math.round(ings[idx]._f100*r*10)/10};
+    } else {
+      ings[idx]={...ings[idx],[key]:val};
+    }
+    return{...f,ingredients:ings};
+  });};
+
+  // Live parse preview from paste text
+  const pastePreview = useMemo(() => {
+    if (!pasteText.trim()) return [];
+    return parsePasted(pasteText);
+  }, [pasteText]);
+
+  const matchedCount = pastePreview.filter(p=>p._auto).length;
+  const unmatchedCount = pastePreview.length - matchedCount;
+
+  const applyPaste = () => {
+    if (!pastePreview.length) return;
+    setForm(f=>({...f, ingredients:[...f.ingredients.filter(i=>i.name.trim()), ...pastePreview]}));
+    setPasteText("");
+    setIngMode("search");
+    showToast(`${pastePreview.length} ingredientes añadidos · ${matchedCount} con macros ✓`);
+  };
+
   const totals=sumM(form.ingredients.map(i=>({kcal:+i.kcal||0,prot:+i.prot||0,carbs:+i.carbs||0,fat:+i.fat||0})));
   const por=perP(totals,+form.portions||1);
   const save=()=>{if(!form.name.trim())return showToast("Añade un nombre","error");onSave({...form,id:form.id||Date.now(),portions:+form.portions||1});};
-  return(<div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}><div className="mo">
-    <div className="mo-hd"><h3>{recipe?"✏️ Editar receta":"✨ Nueva receta"}</h3><button className="mo-x" onClick={onClose}>✕</button></div>
 
-    <div className="f2 mb20">
-      <div>
-        <div className="fg" style={{marginBottom:12}}><label className="fl">Nombre *</label><input className="fi" value={form.name} onChange={e=>sf("name",e.target.value)} placeholder="Nombre de la receta"/></div>
-        <div className="f3">
-          <div className="fg"><label className="fl">Raciones</label><input className="fi" type="number" min="1" value={form.portions} onChange={e=>sf("portions",e.target.value)}/></div>
-          <div className="fg"><label className="fl">Tipo de dieta</label><select className="fs" value={form.categoria||""} onChange={e=>sf("categoria",e.target.value)}><option value="">— Elegir —</option>{DIETS.map(d=><option key={d}>{d}</option>)}</select></div>
-          <div className="fg"><label className="fl">Dificultad</label><select className="fs" value={form.dificultad||""} onChange={e=>sf("dificultad",e.target.value)}><option value="">— Elegir —</option>{DIFFS.map(d=><option key={d}>{d}</option>)}</select></div>
+  return(
+    <div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}>
+    <div className="mo">
+      <div className="mo-hd"><h3>{recipe?"✏️ Editar receta":"✨ Nueva receta"}</h3><button className="mo-x" onClick={onClose}>✕</button></div>
+
+      <div className="f2 mb20">
+        <div>
+          <div className="fg" style={{marginBottom:12}}><label className="fl">Nombre *</label>
+            <input className="fi" value={form.name} onChange={e=>sf("name",e.target.value)} placeholder="Nombre de la receta"/>
+          </div>
+          <div className="f3">
+            <div className="fg"><label className="fl">Raciones</label><input className="fi" type="number" min="1" value={form.portions} onChange={e=>sf("portions",e.target.value)}/></div>
+            <div className="fg"><label className="fl">Tipo de dieta</label><select className="fs" value={form.categoria||""} onChange={e=>sf("categoria",e.target.value)}><option value="">— Elegir —</option>{DIETS.map(d=><option key={d}>{d}</option>)}</select></div>
+            <div className="fg"><label className="fl">Dificultad</label><select className="fs" value={form.dificultad||""} onChange={e=>sf("dificultad",e.target.value)}><option value="">— Elegir —</option>{DIFFS.map(d=><option key={d}>{d}</option>)}</select></div>
+          </div>
+          <div className="fg"><label className="fl">Origen culinario</label><select className="fs" style={{maxWidth:240}} value={form.origen||""} onChange={e=>sf("origen",e.target.value)}><option value="">— Elegir —</option>{ORIGINS.map(o=><option key={o}>{o}</option>)}</select></div>
         </div>
-        <div className="fg"><label className="fl">Origen culinario</label><select className="fs" style={{maxWidth:240}} value={form.origen||""} onChange={e=>sf("origen",e.target.value)}><option value="">— Elegir —</option>{ORIGINS.map(o=><option key={o}>{o}</option>)}</select></div>
+        <ImgUpload value={form.image} onChange={v=>sf("image",v)}/>
       </div>
-      <ImgUpload value={form.image} onChange={v=>sf("image",v)}/>
-    </div>
 
-    <div className="f ac jb mb16"><h4 style={{fontSize:14}}>🥕 Ingredientes</h4></div>
-    <div className="mode-tabs">
-      <button className={"mode-tab"+(ingMode==="search"?" active":"")} onClick={()=>setIngMode("search")}>🔍 Buscar uno a uno</button>
-      <button className={"mode-tab"+(ingMode==="paste"?" active":"")} onClick={()=>setIngMode("paste")}>📋 Pegar lista</button>
-      <button className={"mode-tab"+(ingMode==="url"?" active":"")} onClick={()=>setIngMode("url")}>🌐 Importar URL</button>
-    </div>
-    {ingMode==="paste"&&<div style={{marginBottom:16}}><div className="fg"><label className="fl">Pega tu lista (una línea por ingrediente)</label><textarea className="fta" style={{minHeight:110,fontFamily:"monospace",fontSize:12}} value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder={"200g pechuga de pollo\n2 huevos\n100 ml leche\n1 cucharada de aceite"}/></div><div style={{fontSize:11,color:"var(--mid)",marginBottom:10}}>Formatos: "200g pollo", "2 huevos", "100 ml leche"</div><div className="f g8"><button className="btn btn-p btn-sm" onClick={applyPaste} disabled={!pasteText.trim()}>✓ Añadir</button><button className="btn btn-g btn-sm" onClick={()=>setIngMode("search")}>Cancelar</button></div></div>}
-    {ingMode==="url"&&<div style={{marginBottom:16}}><div className="fg"><label className="fl">URL de la receta</label><input className="fi" value={urlInput} onChange={e=>setUrlInput(e.target.value)} placeholder="https://www.recetasgratis.net/..."/></div><div style={{fontSize:11,color:"var(--mid)",marginBottom:10}}>Funciona con RecetasGratis, Directo al Paladar, Allrecipes y otros sitios con formato estándar.</div><div className="f g8 ac"><button className="btn btn-u btn-sm" onClick={applyURL} disabled={!urlInput.trim()||urlLoading}>{urlLoading?<><div className="sp2"/>Importando...</>:"🌐 Importar"}</button><button className="btn btn-g btn-sm" onClick={()=>setIngMode("search")}>Cancelar</button></div></div>}
+      {/* ── Ingredient mode tabs (2 tabs only) ── */}
+      <div className="f ac jb mb16">
+        <h4 style={{fontSize:14}}>🥕 Ingredientes</h4>
+        <div style={{fontSize:11,color:"var(--mid)"}}>
+          {form.ingredients.filter(i=>i.name.trim()).length} ingrediente(s) · {Math.round(totals.kcal)} kcal totales
+        </div>
+      </div>
+      <div className="mode-tabs" style={{maxWidth:360}}>
+        <button className={"mode-tab"+(ingMode==="search"?" active":"")} onClick={()=>setIngMode("search")}>✏️ Uno a uno</button>
+        <button className={"mode-tab"+(ingMode==="paste"?" active":"")} onClick={()=>setIngMode("paste")}>📋 Pegar lista</button>
+      </div>
 
-    <div style={{overflowX:"auto",marginTop:8}}>
-      <table className="it" style={{minWidth:580}}>
-        <thead><tr><th>Ingrediente</th><th>Cant.</th><th>Unidad</th><th>Kcal</th><th>Prot(g)</th><th>HC(g)</th><th>Grasa(g)</th><th></th><th></th></tr></thead>
-        <tbody>{form.ingredients.map((ing,i)=><IngRow key={ing.id} ing={ing} idx={i} onChange={onChange} onRemove={i=>setForm(f=>({...f,ingredients:f.ingredients.filter((_,j)=>j!==i)}))}/>)}</tbody>
-        <tfoot><tr><td colSpan={3}>Total receta</td><td>{Math.round(totals.kcal)} kcal</td><td>{Math.round(totals.prot)}g</td><td>{Math.round(totals.carbs)}g</td><td>{Math.round(totals.fat)}g</td><td colSpan={2}></td></tr><tr><td colSpan={3} style={{color:"var(--mid)",fontWeight:500}}>Por ración</td><td style={{color:"var(--mid)"}}>{por.kcal} kcal</td><td style={{color:"var(--mid)"}}>{por.prot}g</td><td style={{color:"var(--mid)"}}>{por.carbs}g</td><td style={{color:"var(--mid)"}}>{por.fat}g</td><td colSpan={2}></td></tr></tfoot>
-      </table>
+      {/* ── PASTE MODE ── */}
+      {ingMode==="paste" && (
+        <div style={{marginBottom:20,background:"var(--cream)",borderRadius:"var(--rs)",padding:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--char)",marginBottom:8}}>
+            📋 Pega tu lista de ingredientes
+          </div>
+          <div style={{fontSize:11,color:"var(--mid)",marginBottom:10,lineHeight:1.7}}>
+            Acepta cualquier formato: <code style={{background:"#fff",padding:"1px 5px",borderRadius:4}}>125 g de harina</code> · <code style={{background:"#fff",padding:"1px 5px",borderRadius:4}}>* 2 huevos</code> · <code style={{background:"#fff",padding:"1px 5px",borderRadius:4}}>1 cucharada de aceite</code><br/>
+            Los macros se rellenan automáticamente si el alimento está en nuestra base de datos.
+          </div>
+          <textarea
+            className="fta"
+            style={{minHeight:120,fontFamily:"monospace",fontSize:12,marginBottom:10}}
+            value={pasteText}
+            onChange={e=>setPasteText(e.target.value)}
+            placeholder={"125 g de harina de trigo\n* 1 huevo\n* 10 g de semillas de matalauva\n* 35 ml de licor de anís\n* 25 g de manteca de cerdo\n* 60 g de azúcar\n* Ralladura de un limón"}
+            autoFocus
+          />
+
+          {/* Live preview */}
+          {pastePreview.length > 0 && (
+            <>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,fontSize:11,flexWrap:"wrap"}}>
+                <span style={{fontWeight:700,color:"var(--char)"}}>Vista previa — {pastePreview.length} ingrediente(s)</span>
+                {matchedCount > 0 && <span style={{color:"var(--sage-dk)",fontWeight:600}}>✓ {matchedCount} con macros</span>}
+                {unmatchedCount > 0 && <span style={{color:"var(--terra)",fontWeight:600}}>⚠ {unmatchedCount} sin datos (añade manualmente)</span>}
+              </div>
+              <div className="paste-preview">
+                {pastePreview.map((p,i) => (
+                  <div key={i} className={"paste-prev-row " + (p._auto ? "matched" : "unmatched")}>
+                    <div className={"paste-dot " + (p._auto ? "ok" : "warn")}/>
+                    <span className="paste-ing-name">{p.name}</span>
+                    <span className="paste-ing-qty">{p.qty} {p.unit}</span>
+                    {p._auto
+                      ? <span className="paste-ing-db">↳ {p._dbName} · {p.kcal}kcal</span>
+                      : <span style={{fontSize:10,color:"var(--terra)",marginLeft:"auto",fontStyle:"italic"}}>sin datos</span>}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="f g8" style={{marginTop:12}}>
+            <button className="btn btn-p btn-sm" disabled={!pastePreview.length} onClick={applyPaste}>
+              ✓ Añadir {pastePreview.length > 0 ? pastePreview.length + " ingredientes" : ""}
+            </button>
+            <button className="btn btn-g btn-sm" onClick={()=>{setPasteText("");setIngMode("search");}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Ingredients table (always visible) ── */}
+      <div style={{overflowX:"auto",marginTop:ingMode==="paste"?0:8}}>
+        <table className="it" style={{minWidth:580}}>
+          <thead>
+            <tr>
+              <th>Ingrediente <span style={{fontWeight:400,color:"var(--sage-lt)",fontSize:9}}>↓ escribe para buscar</span></th>
+              <th>Cant.</th><th>Unidad</th><th>Kcal</th><th>Prot(g)</th><th>HC(g)</th><th>Grasa(g)</th>
+              <th style={{fontSize:9}}>BD</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {form.ingredients.map((ing,i)=>(
+              <IngRow key={ing.id} ing={ing} idx={i} onChange={onChange}
+                onRemove={i=>setForm(f=>({...f,ingredients:f.ingredients.filter((_,j)=>j!==i)}))}/>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={3}>Total receta</td>
+              <td>{Math.round(totals.kcal)} kcal</td><td>{Math.round(totals.prot)}g</td>
+              <td>{Math.round(totals.carbs)}g</td><td>{Math.round(totals.fat)}g</td><td colSpan={2}></td>
+            </tr>
+            <tr>
+              <td colSpan={3} style={{color:"var(--mid)",fontWeight:500}}>Por ración</td>
+              <td style={{color:"var(--mid)"}}>{por.kcal} kcal</td>
+              <td style={{color:"var(--mid)"}}>{por.prot}g</td>
+              <td style={{color:"var(--mid)"}}>{por.carbs}g</td>
+              <td style={{color:"var(--mid)"}}>{por.fat}g</td>
+              <td colSpan={2}></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <button className="btn btn-o btn-sm mt10" onClick={()=>setForm(f=>({...f,ingredients:[...f.ingredients,blankIng()]}))}>+ Añadir fila</button>
+
+      <div className="div"/>
+      <div className="fg">
+        <label className="fl">Elaboración / Instrucciones</label>
+        <textarea className="fta" style={{minHeight:100}} value={form.instructions} onChange={e=>sf("instructions",e.target.value)} placeholder="Describe los pasos de preparación..."/>
+      </div>
+      <div className="f g8" style={{justifyContent:"flex-end"}}>
+        <button className="btn btn-g" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-p" onClick={save}>💾 Guardar receta</button>
+      </div>
     </div>
-    <button className="btn btn-o btn-sm mt10" onClick={()=>setForm(f=>({...f,ingredients:[...f.ingredients,blankIng()]}))}>+ Añadir fila</button>
-    <div className="div"/>
-    <div className="fg"><label className="fl">Elaboración / Instrucciones</label><textarea className="fta" style={{minHeight:100}} value={form.instructions} onChange={e=>sf("instructions",e.target.value)} placeholder="Describe los pasos de preparación..."/></div>
-    <div className="f g8" style={{justifyContent:"flex-end"}}><button className="btn btn-g" onClick={onClose}>Cancelar</button><button className="btn btn-p" onClick={save}>💾 Guardar receta</button></div>
-  </div></div>);}
+    </div>
+  );
+}
 
 /* ─── RECIPE DETAIL ───────────────────────────────────────────────────────── */
 function RecipeDetail({recipe,onClose,onEdit,onDelete}){
@@ -1397,17 +2885,20 @@ function BillingChart({ patients }) {
 }
 
 /* ─── DASHBOARD ───────────────────────────────────────────────────────────── */
-function Dashboard({ recipes, week, patients }) {
-  // Patient counts by plan
+function Dashboard({ recipes, week, patients, subscriptions }) {
+  const subs = subscriptions || DEFAULT_SUBS;
+
+  // Patient counts by contrato (matches subscription nombre)
   const planCounts = useMemo(() => {
-    const c = { basico:0, pro:0, premium:0 };
-    patients.forEach(p => { if (p.plan && c[p.plan] !== undefined) c[p.plan]++; });
-    // If no plans set yet, distribute demo
-    if (c.basico+c.pro+c.premium === 0 && patients.length > 0) {
-      patients.forEach((p,i) => { const pl = PLANS_DASH[i%3]; c[pl]++; });
+    const c = {};
+    subs.forEach(s => { c[s.nombre] = 0; });
+    patients.forEach(p => { if (p.contrato && c[p.contrato] !== undefined) c[p.contrato]++; });
+    // Demo fallback if no contrato set
+    if (Object.values(c).every(v=>v===0) && patients.length > 0) {
+      patients.forEach((p,i) => { const s = subs[i % subs.length]; if(s) c[s.nombre]++; });
     }
     return c;
-  }, [patients]);
+  }, [patients, subs]);
 
   const totalPatients = patients.length;
 
@@ -1418,32 +2909,30 @@ function Dashboard({ recipes, week, patients }) {
       const wAgo = 4-i;
       const wEnd = new Date(now); wEnd.setDate(wEnd.getDate() - wAgo*7);
       const wStart = new Date(wEnd); wStart.setDate(wStart.getDate()-6);
-      const active = { basico:0, pro:0, premium:0 };
+      const active = {};
+      subs.forEach(s => { active[s.nombre] = 0; });
       patients.forEach((p,pi) => {
-        const plan = p.plan || PLANS_DASH[pi%3];
-        // Check if patient had a check-in in this week window
+        const planNombre = p.contrato || subs[pi % subs.length]?.nombre;
         const hasCheckin = (p.history||[]).some(h => {
           const d = new Date(h.date);
           return d >= wStart && d <= wEnd;
         });
-        // For demo: simulate activity if no real history
         const isActive = hasCheckin || (patients.length > 0 && Math.random() > 0.3);
-        if (isActive && active[plan] !== undefined) active[plan]++;
+        if (isActive && planNombre && active[planNombre] !== undefined) active[planNombre]++;
       });
       // Fallback demo if no patients
       if (totalPatients === 0) {
-        const factor = [0.7,0.8,0.88,0.94,1][i];
-        active.basico = Math.round(4*factor); active.pro = Math.round(3*factor); active.premium = Math.round(2*factor);
+        subs.forEach((s,si) => { active[s.nombre] = Math.round((3-si)*[0.7,0.8,0.88,0.94,1][i] || 1); });
       }
       const fmt = d => `${d.getDate()}/${d.getMonth()+1}`;
       return {
         label: wAgo===0 ? "Semana actual" : `${fmt(wStart)}–${fmt(wEnd)}`,
         isCurrent: wAgo===0,
-        basico: active.basico, pro: active.pro, premium: active.premium,
-        total: active.basico+active.pro+active.premium,
+        ...active,
+        total: Object.values(active).reduce((a,b)=>a+b,0),
       };
     });
-  }, [patients, totalPatients]);
+  }, [patients, totalPatients, subs]);
 
   // Load Chart.js once
   useEffect(() => {
@@ -1458,7 +2947,7 @@ function Dashboard({ recipes, week, patients }) {
       <div className="ph"><h2>Dashboard</h2><p>Panel de gestión de pacientes y facturación</p></div>
 
       {/* ── Stat Cards ── */}
-      <div className="ds" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+      <div className="ds" style={{gridTemplateColumns:`repeat(${Math.min(subs.length+1,5)},1fr)`}}>
         <div className="dsc">
           <div className="num" style={{color:"var(--sage-dk)"}}>{totalPatients}</div>
           <div className="dlbl">Total pacientes</div>
@@ -1466,12 +2955,17 @@ function Dashboard({ recipes, week, patients }) {
             {patients.filter(p=>(p.history||[]).length>0).length} con seguimiento activo
           </div>
         </div>
-        {PLANS_DASH.map(plan => (
-          <div className="dsc" key={plan} style={{borderTop:`3px solid ${PLAN_COLORS_DASH[plan]}`}}>
-            <div className="num" style={{color:PLAN_COLORS_DASH[plan]}}>{planCounts[plan]}</div>
-            <div className="dlbl">Plan {PLAN_LABELS_DASH[plan]}</div>
+        {subs.map(s => (
+          <div className="dsc" key={s.id} style={{borderTop:`3px solid ${s.color}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+              {s.logo
+                ? <img src={s.logo} style={{width:22,height:22,borderRadius:5,objectFit:"contain"}}/>
+                : <span style={{fontSize:18}}>{s.icono||"📋"}</span>}
+            </div>
+            <div className="num" style={{color:s.color}}>{planCounts[s.nombre]||0}</div>
+            <div className="dlbl">Plan {s.nombre}</div>
             <div style={{fontSize:11,color:"var(--mid)",marginTop:4}}>
-              {(planCounts[plan]*PLAN_PRICES_DASH[plan]).toLocaleString("es-ES")} €/mes
+              {((planCounts[s.nombre]||0)*s.precio).toLocaleString("es-ES")} €/mes
             </div>
           </div>
         ))}
@@ -1484,9 +2978,9 @@ function Dashboard({ recipes, week, patients }) {
           <table className="it">
             <thead>
               <tr>
-                {["Período","Básico","Pro","Premium","Total"].map((h,i) => (
-                  <th key={h} style={{textAlign:i===0?"left":"right"}}>{h}</th>
-                ))}
+                <th>Período</th>
+                {subs.map(s=><th key={s.id} style={{textAlign:"right"}}>{s.nombre}</th>)}
+                <th style={{textAlign:"right"}}>Total</th>
               </tr>
             </thead>
             <tbody>
@@ -1496,8 +2990,8 @@ function Dashboard({ recipes, week, patients }) {
                     {row.label}
                     {row.isCurrent && <span className="badge bg" style={{marginLeft:8,fontSize:9}}>actual</span>}
                   </td>
-                  {PLANS_DASH.map(plan => (
-                    <td key={plan} style={{textAlign:"right",fontWeight:600,color:PLAN_COLORS_DASH[plan]}}>{row[plan]}</td>
+                  {subs.map(s=>(
+                    <td key={s.id} style={{textAlign:"right",fontWeight:600,color:s.color}}>{row[s.nombre]||0}</td>
                   ))}
                   <td style={{textAlign:"right",fontWeight:700,color:"var(--sage-dk)"}}>{row.total}</td>
                 </tr>
@@ -1591,41 +3085,69 @@ function ExportView({recipes,week,profile,onProfileChange,showToast}){
     </div>}
   </div>);}
 
+/* ─── EMAIL FAB ───────────────────────────────────────────────────────────── */
+function EmailFAB() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="email-fab">
+      {open && (
+        <>
+          <a className="email-fab-item"
+            href="https://mail.google.com" target="_blank" rel="noopener noreferrer"
+            title="Abrir Gmail">
+            <div className="email-fab-icon" style={{background:"#fce8e6"}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M20 4H4C2.9 4 2 4.9 2 6v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z" fill="#fff" stroke="#ea4335" strokeWidth="1.5"/>
+                <path d="M2 6l10 7 10-7" stroke="#ea4335" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+            </div>
+            Gmail
+          </a>
+          <a className="email-fab-item"
+            href="https://outlook.live.com" target="_blank" rel="noopener noreferrer"
+            title="Abrir Outlook">
+            <div className="email-fab-icon" style={{background:"#e8f0fe"}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <rect x="2" y="4" width="20" height="16" rx="2" fill="#fff" stroke="#0072c6" strokeWidth="1.5"/>
+                <path d="M2 8h20" stroke="#0072c6" strokeWidth="1.2"/>
+                <circle cx="8" cy="14" r="3" fill="#0072c6" opacity=".8"/>
+                <path d="M11 11h7M11 14h5M11 17h7" stroke="#0072c6" strokeWidth="1.2" strokeLinecap="round"/>
+              </svg>
+            </div>
+            Outlook
+          </a>
+        </>
+      )}
+      <button className="email-fab-main" onClick={()=>setOpen(o=>!o)} title={open?"Cerrar":"Abrir email"}>
+        {open ? "✕" : "✉️"}
+      </button>
+    </div>
+  );
+}
+
 /* ─── APP ROOT ────────────────────────────────────────────────────────────── */
-/* ─── INNER APP (requiere AuthProvider) ──────────────────────────────────── */
-function InnerApp() {
-  const { profile, isActive, refreshProfile } = useAuth();
-  const [view,      setView]      = useState("dashboard");
-  const [showPricing, setShowPricing] = useState(false);
-
-  const [recipes,      setRecipes]      = useState(()=>{try{const s=localStorage.getItem("np8_r");return s?JSON.parse(s):SEED;}catch{return SEED;}});
-  const [week,         setWeek]         = useState(()=>{try{const s=localStorage.getItem("np8_w");return s?JSON.parse(s):mkWeek();}catch{return mkWeek();}});
-  const [localProfile, setLocalProfile] = useState(()=>{try{const s=localStorage.getItem("np8_p");return s?JSON.parse(s):DEFAULT_PROFILE;}catch{return DEFAULT_PROFILE;}});
-  const [toast,        setToast]        = useState(null);
-  const [patients,     setPatients]     = useState(()=>{try{const s=localStorage.getItem("np8_pts");return s?JSON.parse(s):[];}catch{return [];}});
-  const [weekTemplates,setWeekTemplates]= useState(()=>{try{const s=localStorage.getItem("np8_tpl");return s?JSON.parse(s):[];}catch{return [];}});
-  const [interviewQs,  setInterviewQs]  = useState(()=>{try{const s=localStorage.getItem("np8_iqs");return s?JSON.parse(s):DEFAULT_QUESTIONS;}catch{return DEFAULT_QUESTIONS;}});
-
-  // Detectar retorno desde Stripe checkout
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("upgrade") === "success") {
-      setTimeout(() => refreshProfile(), 1500);
-      showToastFn("¡Suscripción activada! Bienvenido 🎉", "success");
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (params.get("upgrade") === "cancel") {
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, []);
+function AppInner(){
+  const { user, profile } = useAuth();
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [view,setView]=useState("dashboard");
+  const[recipes,setRecipes]=useState(()=>{try{const s=localStorage.getItem("np8_r");return s?JSON.parse(s):SEED;}catch{return SEED;}});
+  const[week,setWeek]=useState(()=>{try{const s=localStorage.getItem("np8_w");return s?JSON.parse(s):mkWeek();}catch{return mkWeek();}});
+  const[appProfile,setAppProfile]=useState(()=>{try{const s=localStorage.getItem("np8_p");return s?JSON.parse(s):DEFAULT_PROFILE;}catch{return DEFAULT_PROFILE;}});
+  const[toast,setToast]=useState(null);
+  const[patients,setPatients]=useState(()=>{try{const s=localStorage.getItem("np8_pts");return s?JSON.parse(s):[];}catch{return [];}});
+  const[weekTemplates,setWeekTemplates]=useState(()=>{try{const s=localStorage.getItem("np8_tpl");return s?JSON.parse(s):[];}catch{return [];}});
+  const[interviewQs,setInterviewQs]=useState(()=>{try{const s=localStorage.getItem("np8_iqs");return s?JSON.parse(s):DEFAULT_QUESTIONS;}catch{return DEFAULT_QUESTIONS;}});
+  const[subscriptions,setSubscriptions]=useState(()=>{try{const s=localStorage.getItem("np8_subs");return s?JSON.parse(s):DEFAULT_SUBS;}catch{return DEFAULT_SUBS;}});
 
   useEffect(()=>{try{localStorage.setItem("np8_r",JSON.stringify(recipes));}catch{}},[recipes]);
   useEffect(()=>{try{localStorage.setItem("np8_w",JSON.stringify(week));}catch{}},[week]);
-  useEffect(()=>{try{localStorage.setItem("np8_p",JSON.stringify(localProfile));}catch{}},[localProfile]);
+  useEffect(()=>{try{localStorage.setItem("np8_p",JSON.stringify(appProfile));}catch{}},[appProfile]);
   useEffect(()=>{try{localStorage.setItem("np8_pts",JSON.stringify(patients));}catch{}},[patients]);
   useEffect(()=>{try{localStorage.setItem("np8_tpl",JSON.stringify(weekTemplates));}catch{}},[weekTemplates]);
   useEffect(()=>{try{localStorage.setItem("np8_iqs",JSON.stringify(interviewQs));}catch{}},[interviewQs]);
+  useEffect(()=>{try{localStorage.setItem("np8_subs",JSON.stringify(subscriptions));}catch{}},[subscriptions]);
 
-  const showToastFn = useCallback((msg,type="success")=>setToast({msg,type,k:Date.now()}),[]);
+  const showToast=useCallback((msg,type="success")=>setToast({msg,type,k:Date.now()}),[]);
   const addR=r=>setRecipes(rs=>[...rs,r]);
   const updR=r=>setRecipes(rs=>rs.map(x=>x.id===r.id?r:x));
   const delR=id=>{setRecipes(rs=>rs.filter(x=>x.id!==id));setWeek(w=>{const nw=JSON.parse(JSON.stringify(w));DAYS.forEach(d=>MEALS.forEach(m=>{nw[d][m]=(nw[d][m]||[]).filter(rid=>rid!==id);}));return nw;});};
@@ -1637,44 +3159,75 @@ function InnerApp() {
   const addCheckin=(patientId,entry)=>setPatients(ps=>ps.map(p=>{if(p.id!==patientId)return p;const h=[...(p.history||[]),entry];h.sort((a,b)=>a.date.localeCompare(b.date));const last=h[h.length-1];return{...p,history:h,weight:last?.weight||p.weight};}));
   const assignTpl=(patientId,tplId)=>setPatients(ps=>ps.map(p=>p.id===patientId?{...p,assignedTemplateId:tplId||null}:p));
   const saveTpl=tpl=>setWeekTemplates(ts=>[...ts,tpl]);
-
-  if (showPricing) return <PricingPage onBack={()=>setShowPricing(false)}/>;
+  const addSub=s=>setSubscriptions(ss=>[...ss,s]);
+  const updSub=s=>setSubscriptions(ss=>ss.map(x=>x.id===s.id?s:x));
+  const delSub=id=>setSubscriptions(ss=>ss.filter(x=>x.id!==id));
 
   const NAV=[
-    {id:"dashboard",icon:"📊",label:"Dashboard"},
-    {id:"patients", icon:"👥",label:"Pacientes"},
-    {id:"recipes",  icon:"📋",label:"Recetas"},
-    {id:"planner",  icon:"🗓", label:"Planificador"},
-    {id:"shopping", icon:"🛒",label:"Lista Compra"},
-    {id:"export",   icon:"⬇️",label:"Exportar"},
+    {id:"dashboard",   icon:"📊", label:"Dashboard"},
+    {id:"patients",    icon:"👥", label:"Pacientes"},
+    {id:"suscripciones",icon:"💳",label:"Suscripciones"},
+    {id:"recipes",     icon:"📋", label:"Recetas"},
+    {id:"planner",     icon:"🗓",  label:"Planificador"},
+    {id:"shopping",    icon:"🛒", label:"Lista Compra"},
+    {id:"export",      icon:"⬇️", label:"Exportar"},
   ];
+
+  // Plan badge for sidebar
+  const currentPlan = PLANS.find(p => p.name === profile?.plan);
 
   return(<><Styles/>
     <div className="shell">
       <aside className="sb">
         <div className="sb-logo"><h1>Nutri<br/>Planner</h1><span>Pro</span></div>
         <nav>{NAV.map(n=><div key={n.id} className={"nav-item"+(view===n.id?" active":"")} onClick={()=>setView(n.id)}><span style={{fontSize:17}}>{n.icon}</span>{n.label}</div>)}</nav>
-        <AccountButton onUpgrade={()=>setShowPricing(true)}/>
+        {/* Account button at bottom of sidebar */}
+        <div style={{marginTop:"auto",padding:"0 16px 8px"}}>
+          {user?.email === ADMIN_EMAIL ? (
+            <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",marginBottom:8,background:"rgba(255,255,255,.12)",borderRadius:8,border:"1px solid rgba(255,255,255,.2)"}}>
+              <span style={{fontSize:14}}>👑</span>
+              <span style={{fontSize:11,color:"rgba(255,255,255,.85)",fontWeight:700}}>Administrador</span>
+              <span style={{marginLeft:"auto",width:7,height:7,borderRadius:"50%",background:"#e8a96a",flexShrink:0}}/>
+            </div>
+          ) : currentPlan ? (
+            <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",marginBottom:8,background:"rgba(255,255,255,.08)",borderRadius:8}}>
+              <span style={{fontSize:14}}>{currentPlan.icon}</span>
+              <span style={{fontSize:11,color:"rgba(255,255,255,.7)",fontWeight:600}}>Plan {currentPlan.name}</span>
+              <span style={{marginLeft:"auto",width:7,height:7,borderRadius:"50%",background:"#4caf88",flexShrink:0}}/>
+            </div>
+          ) : null}
+          <button
+            onClick={()=>setAccountOpen(true)}
+            style={{width:"100%",background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.15)",borderRadius:8,padding:"9px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,color:"rgba(255,255,255,.75)",fontSize:12,fontWeight:500,transition:"all .16s"}}
+            onMouseOver={e=>e.currentTarget.style.background="rgba(255,255,255,.18)"}
+            onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.1)"}
+          >
+            <span style={{fontSize:16}}>👤</span>
+            <span style={{flex:1,textAlign:"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.email}</span>
+          </button>
+        </div>
       </aside>
       <main className="main">
-        {!isActive && <UpgradeBanner onUpgrade={()=>setShowPricing(true)}/>}
-        {view==="dashboard"&&<Dashboard recipes={recipes} week={week} patients={patients}/>}
-        {view==="recipes"  &&<RecipesView recipes={recipes} onAdd={addR} onUpdate={updR} onDelete={delR} showToast={showToastFn}/>}
-        {view==="planner"  &&<PlannerView week={week} recipes={recipes} onAdd={addW} onRemove={rmW} onSaveTemplate={saveTpl} showToast={showToastFn}/>}
-        {view==="patients" &&<PatientsView patients={patients} questions={interviewQs} recipes={recipes} weekTemplates={weekTemplates} onAdd={addPt} onUpdate={updPt} onDelete={delPt} onAddCheckin={addCheckin} onAssignTemplate={assignTpl} showToast={showToastFn}/>}
-        {view==="shopping" &&<ShoppingView week={week} recipes={recipes} profile={localProfile} showToast={showToastFn}/>}
-        {view==="export"   &&<ExportView recipes={recipes} week={week} profile={localProfile} onProfileChange={setLocalProfile} showToast={showToastFn}/>}
+        {view==="dashboard"      &&<Dashboard recipes={recipes} week={week} patients={patients} subscriptions={subscriptions}/>}
+        {view==="recipes"        &&<RecipesView recipes={recipes} onAdd={addR} onUpdate={updR} onDelete={delR} showToast={showToast}/>}
+        {view==="planner"        &&<PlannerView week={week} recipes={recipes} onAdd={addW} onRemove={rmW} onSaveTemplate={saveTpl} showToast={showToast}/>}
+        {view==="patients"       &&<PatientsView patients={patients} questions={interviewQs} recipes={recipes} weekTemplates={weekTemplates} subscriptions={subscriptions} onAdd={addPt} onUpdate={updPt} onDelete={delPt} onAddCheckin={addCheckin} onAssignTemplate={assignTpl} onSaveTemplate={saveTpl} showToast={showToast}/>}
+        {view==="suscripciones"  &&<SubscriptionsView subscriptions={subscriptions} onAdd={addSub} onUpdate={updSub} onDelete={delSub} showToast={showToast}/>}
+        {view==="shopping"       &&<ShoppingView week={week} recipes={recipes} profile={appProfile} showToast={showToast}/>}
+        {view==="export"         &&<ExportView recipes={recipes} week={week} profile={appProfile} onProfileChange={setAppProfile} showToast={showToast}/>}
       </main>
     </div>
+    <EmailFAB/>
+    {accountOpen && <AccountModal onClose={()=>setAccountOpen(false)}/>}
     {toast&&<Toast key={toast.k} msg={toast.msg} type={toast.type} onHide={()=>setToast(null)}/>}
   </>);
 }
 
-export default function App(){
+export default function App() {
   return (
     <AuthProvider>
       <AuthGate>
-        <InnerApp/>
+        <AppInner />
       </AuthGate>
     </AuthProvider>
   );
