@@ -11,7 +11,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.43.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "stripe": "^14.12.0"          ← ✅ AÑADIR ESTA LÍNEA
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
