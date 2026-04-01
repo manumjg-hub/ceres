@@ -115,312 +115,548 @@ async function openCustomerPortal(userId) {
   else throw new Error(data.error || "Error al abrir portal");
 }
 
-/* ─── AUTH PAGE — Split-panel landing ───────────────────────────────────── */
-/* ─── AUTH STYLES ────────────────────────────────────────────────────────── */
-const AuthStyles = () => (
-  <style>{`
-    .auth-shell{display:flex;min-height:100vh;font-family:'DM Sans',sans-serif}
-    .auth-hero{flex:1 1 52%;display:flex;flex-direction:column;justify-content:center;
-      background:linear-gradient(150deg,#2a4a2a 0%,#3a5c3a 45%,#4a7a4a 100%);
-      padding:60px 56px;min-width:0}
-    .auth-form-panel{flex:1 1 48%;display:flex;align-items:center;justify-content:center;
-      background:#f8f4ed;padding:40px 48px;min-width:320px;overflow-y:auto}
-    .auth-features{display:grid}
-    @media (max-width:768px){
-      .auth-shell{flex-direction:column}
-      .auth-hero{padding:32px 24px;flex:0 0 auto}
-      .auth-features{display:none!important}
-      .auth-form-panel{padding:28px 20px;flex:1;min-width:0;align-items:flex-start}
+/* ─── VINE CANVAS ────────────────────────────────────────────────────────── */
+function VineCanvas({ scrollY }) {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const progress = Math.min(scrollY / 3000, 1);
+    const totalLen = H * 0.85;
+    const drawn = totalLen * progress;
+    ctx.save();
+    ctx.strokeStyle = "#4caf88";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    const stemX = W / 2;
+    let startY = 60;
+    ctx.moveTo(stemX, startY);
+    for (let i = 0; i < drawn; i += 2) {
+      ctx.lineTo(stemX + Math.sin(i * 0.04) * 18, startY + i);
     }
-    @media (max-width:480px){
-      .auth-hero{padding:24px 18px}
-      .auth-form-panel{padding:20px 16px}
+    ctx.stroke();
+    ctx.restore();
+    const leafCount = Math.floor(progress * 24);
+    for (let li = 0; li < leafCount; li++) {
+      const t = li / 24;
+      const vy = 60 + t * totalLen;
+      const vx = stemX + Math.sin(li * 0.04 * 24) * 18;
+      const side = li % 2 === 0 ? 1 : -1;
+      const age = Math.min((progress - t) * 8, 1);
+      ctx.save();
+      ctx.translate(vx + side * 22 * age, vy);
+      ctx.rotate(side * 0.5);
+      ctx.globalAlpha = age;
+      ctx.fillStyle = li % 3 === 0 ? "#2d7a5a" : "#4caf88";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 10 * age, 18 * age, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.4)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, -14 * age);
+      ctx.lineTo(0, 14 * age);
+      ctx.stroke();
+      ctx.restore();
     }
-  `}</style>
-);
+    const fruits = ["🥭","🍍","🌿","🍋","🥥","🍊","🫐","🍇"];
+    const fruitCount = Math.floor(progress * fruits.length);
+    for (let fi = 0; fi < fruitCount; fi++) {
+      const t = (fi + 0.5) / fruits.length;
+      const vy = 60 + t * totalLen;
+      const vx = stemX + Math.sin(t * 24 * 0.04) * 18;
+      const side = fi % 2 === 0 ? 1 : -1;
+      const age = Math.min((progress - t) * 12, 1);
+      ctx.save();
+      ctx.translate(vx + side * 52 * age, vy - 10);
+      ctx.globalAlpha = age;
+      ctx.font = `${22 * age}px serif`;
+      ctx.textAlign = "center";
+      ctx.fillText(fruits[fi], 0, 0);
+      ctx.restore();
+    }
+  }, [scrollY]);
+  return (
+    <canvas ref={canvasRef} width={120} height={3200}
+      style={{position:"fixed",right:"4%",top:0,pointerEvents:"none",zIndex:10,opacity:0.8}}
+    />
+  );
+}
 
-function AuthPage() {
+/* ─── LANDING PAGE ───────────────────────────────────────────────────────── */
+const LANDING_PLANS = [
+  { id:"basico", name:"Básico", price:29, color:"#4caf88", accent:"#2d7a5a", icon:"🌱", desc:"Empieza a gestionar tu consulta",
+    features:["Pacientes ilimitados","Planificador semanal de menús","Lista de compra automática","PDF menú + recetas","Cuestionario personalizable","Historial de peso y seguimiento"] },
+  { id:"pro", name:"Pro", price:59, color:"#3a7ab5", accent:"#1a4f80", icon:"⭐", popular:true, desc:"La elección de los profesionales",
+    features:["Todo lo del plan Básico","Composición corporal completa","Editor de dieta personalizado","Plantillas reutilizables ilimitadas","Dashboard de facturación","Suscripciones de pacientes","Acceso prioritario a novedades"] },
+];
+const LANDING_FEATURES = [
+  { icon:"👥", title:"Gestión de pacientes", desc:"Todos tus pacientes organizados. Historial completo, evolución y documentos en un solo lugar.", fruit:"🥭" },
+  { icon:"📋", title:"Planificación de menús", desc:"Crea menús semanales en minutos con el editor visual. Genera PDFs listos para imprimir al momento.", fruit:"🍍" },
+  { icon:"📊", title:"Seguimiento nutricional", desc:"Controla el progreso con gráficas detalladas de peso, medidas y composición corporal.", fruit:"🍌" },
+  { icon:"🛒", title:"Lista de compra automática", desc:"Genera la lista de compra del menú con un clic. Ahorra tiempo a ti y a tus pacientes.", fruit:"🥥" },
+  { icon:"💰", title:"Facturación integrada", desc:"Gestiona cobros, suscripciones y facturas desde la misma plataforma.", fruit:"🍋" },
+  { icon:"📱", title:"Acceso desde cualquier lugar", desc:"Funciona en cualquier dispositivo. Sin instalaciones, siempre actualizado.", fruit:"🍊" },
+];
+
+function LandingPage({ onLogin, onRegister, onSelectPlan }) {
+  const [scrollY, setScrollY] = useState(0);
+  const [hoverFeat, setHoverFeat] = useState(null);
+  const [hoverPlan, setHoverPlan] = useState(null);
+
+  useEffect(() => {
+    const onScroll = () => setScrollY(window.scrollY);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const heroOpacity = Math.max(0, 1 - scrollY / 500);
+  const heroY = scrollY * 0.18;
+
+  const lp = { // landing styles inline
+    page: { fontFamily:"'Helvetica Neue',Helvetica,Arial,sans-serif", background:"#fafaf8", color:"#1a1a1a", overflowX:"hidden", minHeight:"100vh" },
+    nav: { position:"fixed", top:0, left:0, right:0, zIndex:100, padding:"0 5%", transition:"all .3s", background: scrollY>60?"rgba(255,255,255,0.94)":"transparent", backdropFilter: scrollY>60?"blur(20px)":"none", boxShadow: scrollY>60?"0 1px 0 rgba(0,0,0,.08)":"none" },
+    navInner: { maxWidth:1100, margin:"0 auto", height:60, display:"flex", alignItems:"center", justifyContent:"space-between" },
+    logo: { display:"flex", alignItems:"center", gap:8 },
+    logoTxt: { fontSize:16, fontWeight:600, letterSpacing:"-.02em" },
+    navLinks: { display:"flex", alignItems:"center", gap:20 },
+    navA: { fontSize:14, color:"#555", textDecoration:"none", fontWeight:400 },
+    navBtnPrimary: { fontSize:13, color:"#fff", background:"#2d7a5a", border:"none", cursor:"pointer", padding:"7px 18px", borderRadius:20, fontWeight:600 },
+    navBtnGhost: { fontSize:13, color:"#333", background:"transparent", border:"none", cursor:"pointer", padding:"7px 12px" },
+    hero: { minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:"110px 5% 60px", maxWidth:1100, margin:"0 auto", gap:60, flexWrap:"wrap" },
+    hContent: { flex:"1 1 400px", opacity:heroOpacity, transform:`translateY(${heroY}px)` },
+    badge: { display:"inline-block", background:"rgba(76,175,136,.12)", color:"#2d7a5a", fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:20, marginBottom:24, letterSpacing:".02em" },
+    h1: { fontSize:"clamp(34px,5vw,58px)", fontWeight:800, lineHeight:1.08, letterSpacing:"-.035em", margin:"0 0 20px", color:"#050505" },
+    accent: { color:"#2d7a5a" },
+    hsub: { fontSize:17, lineHeight:1.65, color:"#555", margin:"0 0 32px", maxWidth:440 },
+    ctas: { display:"flex", gap:16, alignItems:"center", flexWrap:"wrap" },
+    ctaPrimary: { background:"#2d7a5a", color:"#fff", border:"none", padding:"14px 30px", borderRadius:30, fontSize:16, fontWeight:700, cursor:"pointer", letterSpacing:"-.01em" },
+    ctaGhost: { color:"#2d7a5a", textDecoration:"none", fontSize:15, fontWeight:500 },
+    heroNote: { fontSize:12, color:"#aaa", marginTop:14 },
+    mockupWrap: { flex:"0 0 340px", opacity:heroOpacity, transform:`translateY(${heroY * 0.5}px)` },
+    mockupWin: { background:"#fff", borderRadius:18, boxShadow:"0 30px 80px rgba(0,0,0,.14)", overflow:"hidden" },
+    mockupBar: { background:"#f5f5f5", padding:"10px 14px", display:"flex", gap:6, alignItems:"center" },
+    dot: { width:12, height:12, borderRadius:"50%", display:"inline-block" },
+    mockupBody: { padding:20 },
+    proof: { background:"#f2f2ef", padding:"44px 5%", textAlign:"center" },
+    proofLbl: { fontSize:12, color:"#bbb", textTransform:"uppercase", letterSpacing:".1em", marginBottom:28 },
+    proofRow: { display:"flex", justifyContent:"center", gap:"clamp(24px,6vw,80px)", flexWrap:"wrap" },
+    pNum: { fontSize:30, fontWeight:800, letterSpacing:"-.03em", color:"#050505" },
+    pLbl: { fontSize:12, color:"#888", marginTop:3 },
+    section: { padding:"90px 5%", maxWidth:1100, margin:"0 auto" },
+    sHead: { textAlign:"center", marginBottom:60 },
+    sBadge: { display:"inline-block", background:"rgba(76,175,136,.1)", color:"#2d7a5a", fontSize:11, fontWeight:700, padding:"4px 14px", borderRadius:20, marginBottom:14, textTransform:"uppercase", letterSpacing:".07em" },
+    sTitle: { fontSize:"clamp(26px,4vw,44px)", fontWeight:800, letterSpacing:"-.035em", lineHeight:1.12, margin:"0 0 14px", color:"#050505" },
+    sSub: { fontSize:16, color:"#666", maxWidth:520, margin:"0 auto", lineHeight:1.65 },
+    grid3: { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:18 },
+    featCard: (i) => ({ background:"#fff", borderRadius:16, padding:28, transition:"transform .2s,box-shadow .2s", position:"relative", overflow:"hidden", transform:hoverFeat===i?"translateY(-5px)":"none", boxShadow:hoverFeat===i?"0 20px 50px rgba(0,0,0,.1)":"0 2px 16px rgba(0,0,0,.05)" }),
+    howBg: { background:"#f2f2ef", padding:"90px 5%" },
+    steps: { display:"flex", justifyContent:"center", gap:"clamp(28px,6vw,72px)", maxWidth:860, margin:"0 auto", flexWrap:"wrap" },
+    step: { flex:"0 0 200px", textAlign:"center" },
+    stepN: { fontSize:12, fontWeight:700, color:"#4caf88", letterSpacing:".1em", marginBottom:14 },
+    stepT: { fontSize:19, fontWeight:700, margin:"0 0 8px", letterSpacing:"-.02em" },
+    stepD: { fontSize:13, color:"#666", lineHeight:1.6, margin:0 },
+    planGrid: { display:"flex", justifyContent:"center", gap:22, flexWrap:"wrap", marginTop:16 },
+    planCard: (p) => ({ background:"#fff", borderRadius:20, padding:"32px 26px", flex:"0 0 330px", textAlign:"left", position:"relative", transition:"transform .2s,box-shadow .2s", border:p.popular?"2px solid "+p.color:"1.5px solid #e8e8e8", transform:(p.popular||hoverPlan===p.id)?"scale(1.03)":"scale(1)", boxShadow:(p.popular||hoverPlan===p.id)?"0 16px 50px rgba(0,0,0,.12)":"0 2px 16px rgba(0,0,0,.05)" }),
+    planBtn: (p) => ({ width:"100%", padding:"13px 0", borderRadius:30, fontSize:15, fontWeight:700, cursor:"pointer", letterSpacing:"-.01em", background:p.popular?p.color:"transparent", color:p.popular?"#fff":p.color, border:"2px solid "+p.color }),
+    tGrid: { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))", gap:18 },
+    tCard: { background:"#fff", borderRadius:16, padding:26 },
+    darkCta: { background:"#081510", padding:"90px 5%", textAlign:"center", position:"relative", overflow:"hidden" },
+    footer: { background:"#080808", padding:"28px 5%" },
+  };
+
+  return (
+    <div style={lp.page}>
+      <VineCanvas scrollY={scrollY} />
+
+      {/* NAV */}
+      <nav style={lp.nav}>
+        <div style={lp.navInner}>
+          <div style={lp.logo}>
+            <span style={{fontSize:22}}>🌿</span>
+            <span style={lp.logoTxt}>NutriPlanner <strong>Pro</strong></span>
+          </div>
+          <div style={lp.navLinks}>
+            <a href="#features" style={lp.navA}>Funciones</a>
+            <a href="#pricing" style={lp.navA}>Precios</a>
+            <button onClick={onLogin} style={lp.navBtnGhost}>Iniciar sesión</button>
+            <button onClick={onRegister} style={lp.navBtnPrimary}>Empezar gratis</button>
+          </div>
+        </div>
+      </nav>
+
+      {/* HERO */}
+      <section style={lp.hero}>
+        <div style={lp.hContent}>
+          <div style={lp.badge}>✦ El primer mes es gratis · Sin permanencia</div>
+          <h1 style={lp.h1}>
+            Tu consulta de nutrición,<br/>
+            <span style={lp.accent}>más inteligente</span>
+          </h1>
+          <p style={lp.hsub}>
+            La plataforma todo-en-uno para nutricionistas que quieren dedicar
+            más tiempo a sus pacientes y menos a la gestión.
+          </p>
+          <div style={lp.ctas}>
+            <button onClick={onRegister} style={lp.ctaPrimary}>Empieza gratis hoy →</button>
+            <a href="#features" style={lp.ctaGhost}>Ver cómo funciona</a>
+          </div>
+          <p style={lp.heroNote}>Sin tarjeta de crédito · Cancela cuando quieras</p>
+        </div>
+
+        <div style={lp.mockupWrap}>
+          <div style={lp.mockupWin}>
+            <div style={lp.mockupBar}>
+              <span style={{...lp.dot,background:"#ff5f57"}}/>
+              <span style={{...lp.dot,background:"#febc2e"}}/>
+              <span style={{...lp.dot,background:"#28c840"}}/>
+            </div>
+            <div style={lp.mockupBody}>
+              <div style={{display:"flex",gap:24,marginBottom:16}}>
+                {[["48","Pacientes activos"],["98%","Adherencia media"]].map(([n,l])=>(
+                  <div key={l}>
+                    <div style={{fontSize:26,fontWeight:800,letterSpacing:"-.03em",color: l==="Adherencia media"?"#4caf88":"#050505"}}>{n}</div>
+                    <div style={{fontSize:11,color:"#aaa",marginTop:2}}>{l}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"flex-end",height:90,marginBottom:14}}>
+                {[60,80,45,90,70].map((h,i)=>(
+                  <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                    <div style={{width:"100%",height:h,borderRadius:4,background:i===3?"#4caf88":"#e8f5e9"}}/>
+                    <div style={{fontSize:9,color:"#ccc"}}>{"LMMJV"[i]}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:11,color:"#555",background:"#f0f9f5",padding:"6px 10px",borderRadius:8,display:"inline-block"}}>
+                🥗 Dieta mediterránea · 1.800 kcal
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* PROOF */}
+      <section style={lp.proof}>
+        <p style={lp.proofLbl}>Confían en nosotros</p>
+        <div style={lp.proofRow}>
+          {[["500+","Nutricionistas"],["24.000+","Pacientes gestionados"],["98%","Satisfacción"],["4,9★","Valoración media"]].map(([n,l])=>(
+            <div key={l} style={{textAlign:"center"}}>
+              <div style={lp.pNum}>{n}</div>
+              <div style={lp.pLbl}>{l}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* FEATURES */}
+      <section id="features" style={lp.section}>
+        <div style={lp.sHead}>
+          <div style={lp.sBadge}>Funciones</div>
+          <h2 style={lp.sTitle}>Todo lo que necesitas,<br/>en un solo lugar</h2>
+          <p style={lp.sSub}>Diseñado por y para nutricionistas. Cada función existe para ahorrarte tiempo.</p>
+        </div>
+        <div style={lp.grid3}>
+          {LANDING_FEATURES.map((f,i)=>(
+            <div key={f.title} style={lp.featCard(i)} onMouseEnter={()=>setHoverFeat(i)} onMouseLeave={()=>setHoverFeat(null)}>
+              <div style={{position:"absolute",top:14,right:14,fontSize:28,opacity:0.15}}>{f.fruit}</div>
+              <div style={{fontSize:28,marginBottom:10}}>{f.icon}</div>
+              <h3 style={{fontSize:17,fontWeight:700,margin:"0 0 8px",letterSpacing:"-.01em"}}>{f.title}</h3>
+              <p style={{fontSize:13,color:"#666",lineHeight:1.65,margin:0}}>{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* HOW IT WORKS */}
+      <section style={lp.howBg}>
+        <div style={{...lp.sHead,marginBottom:52}}>
+          <div style={lp.sBadge}>Así de simple</div>
+          <h2 style={lp.sTitle}>Empieza en 3 minutos</h2>
+        </div>
+        <div style={lp.steps}>
+          {[
+            {n:"01",t:"Crea tu cuenta",d:"Regístrate gratis. Sin tarjeta, sin complicaciones."},
+            {n:"02",t:"Añade tus pacientes",d:"Importa o crea fichas en segundos con toda su información."},
+            {n:"03",t:"Planifica y crece",d:"Gestiona menús, seguimiento y facturación desde un solo panel."},
+          ].map(st=>(
+            <div key={st.n} style={lp.step}>
+              <div style={lp.stepN}>{st.n}</div>
+              <h3 style={lp.stepT}>{st.t}</h3>
+              <p style={lp.stepD}>{st.d}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* PRICING */}
+      <section id="pricing" style={{...lp.section,textAlign:"center"}}>
+        <div style={lp.sHead}>
+          <div style={lp.sBadge}>Precios</div>
+          <h2 style={lp.sTitle}>Inversión mínima,<br/>retorno máximo</h2>
+          <p style={lp.sSub}>Un solo paciente nuevo ya cubre el coste del mes. El primer mes es gratis.</p>
+        </div>
+        <div style={lp.planGrid}>
+          {LANDING_PLANS.map(plan=>(
+            <div key={plan.id} style={lp.planCard(plan)} onMouseEnter={()=>setHoverPlan(plan.id)} onMouseLeave={()=>setHoverPlan(null)}>
+              {plan.popular && (
+                <div style={{position:"absolute",top:-14,left:"50%",transform:"translateX(-50%)",background:plan.color,color:"#fff",fontSize:11,fontWeight:700,padding:"4px 16px",borderRadius:20,whiteSpace:"nowrap"}}>
+                  ✦ Más popular
+                </div>
+              )}
+              <div style={{fontSize:28,marginBottom:10}}>{plan.icon}</div>
+              <h3 style={{fontSize:22,fontWeight:800,margin:"0 0 4px",letterSpacing:"-.025em"}}>{plan.name}</h3>
+              <p style={{fontSize:13,color:"#999",margin:"0 0 18px"}}>{plan.desc}</p>
+              <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:2}}>
+                <span style={{fontSize:18,fontWeight:500,color:"#666"}}>€</span>
+                <span style={{fontSize:52,fontWeight:900,letterSpacing:"-.05em",lineHeight:1,color:"#050505"}}>{plan.price}</span>
+                <span style={{fontSize:13,color:"#aaa"}}>/mes</span>
+              </div>
+              <div style={{fontSize:11,color:"#4caf88",fontWeight:600,marginBottom:22}}>Primer mes gratis</div>
+              <ul style={{listStyle:"none",padding:0,margin:"0 0 26px"}}>
+                {plan.features.map(f=>(
+                  <li key={f} style={{fontSize:13,color:"#444",padding:"5px 0",borderBottom:"0.5px solid #f0f0f0",display:"flex",alignItems:"flex-start"}}>
+                    <span style={{color:plan.color,marginRight:8,flexShrink:0}}>✓</span>{f}
+                  </li>
+                ))}
+              </ul>
+              <button onClick={()=>onSelectPlan?onSelectPlan(plan):onRegister&&onRegister(plan)} style={lp.planBtn(plan)}>
+                Empezar con {plan.name} →
+              </button>
+            </div>
+          ))}
+        </div>
+        <p style={{fontSize:14,color:"#aaa",marginTop:36}}>
+          ¿Ya tienes cuenta?{" "}
+          <button onClick={onLogin} style={{background:"none",border:"none",color:"#2d7a5a",fontSize:14,cursor:"pointer",textDecoration:"underline"}}>
+            Inicia sesión aquí
+          </button>
+        </p>
+      </section>
+
+      {/* TESTIMONIALS */}
+      <section style={{...lp.howBg}}>
+        <div style={{maxWidth:1100,margin:"0 auto"}}>
+          <div style={{...lp.sHead,marginBottom:52}}>
+            <h2 style={lp.sTitle}>Lo que dicen los nutricionistas</h2>
+          </div>
+          <div style={lp.tGrid}>
+            {[
+              {name:"Dra. Laura Martínez",role:"Nutricionista clínica, Valencia",av:"LM",txt:"Ahorro más de 3 horas a la semana en gestión. Mis pacientes reciben mejor atención y yo tengo más tiempo para lo que importa."},
+              {name:"Pablo Sánchez",role:"Dietista-nutricionista, Madrid",av:"PS",txt:"La función de planificación de menús es increíble. Antes tardaba una hora, ahora lo hago en 10 minutos."},
+              {name:"Ana Jiménez",role:"Nutricionista deportiva, Barcelona",av:"AJ",txt:"El seguimiento de composición corporal ha mejorado muchísimo la motivación de mis pacientes. Totalmente recomendado."},
+            ].map(t=>(
+              <div key={t.name} style={lp.tCard}>
+                <div style={{width:42,height:42,borderRadius:"50%",background:"rgba(76,175,136,.14)",color:"#2d7a5a",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,marginBottom:14}}>{t.av}</div>
+                <p style={{fontSize:14,lineHeight:1.7,color:"#444",margin:"0 0 14px",fontStyle:"italic"}}>"{t.txt}"</p>
+                <div style={{fontSize:13,fontWeight:700,color:"#050505"}}>{t.name}</div>
+                <div style={{fontSize:11,color:"#aaa",marginTop:2}}>{t.role}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FINAL CTA */}
+      <section style={lp.darkCta}>
+        {["🥭","🍍","🌿","🍋"].map((fr,i)=>(
+          <span key={i} style={{position:"absolute",fontSize:[60,80,50,70][i],opacity:0.1,top:["10%","20%","auto","auto"][i],bottom:[null,null,"15%","10%"][i],left:["5%",null,"12%",null][i],right:[null,"8%",null,"5%"][i],pointerEvents:"none"}}>{fr}</span>
+        ))}
+        <div style={{position:"relative",zIndex:1}}>
+          <h2 style={{fontSize:"clamp(28px,5vw,52px)",fontWeight:800,color:"#fff",letterSpacing:"-.035em",margin:"0 0 18px"}}>Empieza hoy, sin riesgos</h2>
+          <p style={{fontSize:17,color:"rgba(255,255,255,.55)",lineHeight:1.65,margin:"0 0 36px"}}>
+            El primer mes completamente gratis. Sin tarjeta de crédito.<br/>Cancela cuando quieras.
+          </p>
+          <button onClick={onRegister} style={{background:"#4caf88",color:"#fff",border:"none",padding:"15px 40px",borderRadius:30,fontSize:17,fontWeight:700,cursor:"pointer",letterSpacing:"-.01em"}}>
+            Crear mi cuenta gratis →
+          </button>
+          <p style={{fontSize:12,color:"rgba(255,255,255,.3)",marginTop:20}}>Más de 500 nutricionistas ya confían en NutriPlanner Pro</p>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer style={lp.footer}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:18}}>🌿</span>
+            <span style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.6)"}}>NutriPlanner Pro</span>
+          </div>
+          <div style={{display:"flex",gap:18}}>
+            {["Funciones","Precios"].map(l=>(
+              <a key={l} href={"#"+l.toLowerCase()} style={{fontSize:12,color:"rgba(255,255,255,.35)",textDecoration:"none"}}>{l}</a>
+            ))}
+            <button onClick={onLogin} style={{fontSize:12,color:"rgba(255,255,255,.35)",background:"none",border:"none",cursor:"pointer"}}>Acceder</button>
+          </div>
+          <p style={{fontSize:11,color:"rgba(255,255,255,.2)",margin:0}}>© 2025 NutriPlanner Pro · Todos los derechos reservados</p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/* ─── AUTH PAGE (login / register) ──────────────────────────────────────── */
+function AuthPage({ initialMode = "login", preselectedPlan = null, onBack = null }) {
   const { supabase } = useAuth();
-  const [mode,    setMode]    = useState("login");
-  const [email,   setEmail]   = useState("");
-  const [password,setPass]    = useState("");
-  const [name,    setName]    = useState("");
-  const [showPw,  setShowPw]  = useState(false);
+  const [mode, setMode]       = useState(initialMode);
+  const [email, setEmail]     = useState("");
+  const [password, setPass]   = useState("");
+  const [name, setName]       = useState("");
   const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState("");
-  const [msg,     setMsg]     = useState("");
-  const [terms,   setTerms]   = useState(false);
-
-  const pwStrength = useMemo(() => {
-    if (!password) return { score:0, label:"", color:"transparent" };
-    let s = 0;
-    if (password.length >= 8)        s++;
-    if (password.length >= 12)       s++;
-    if (/[A-Z]/.test(password))      s++;
-    if (/[0-9]/.test(password))      s++;
-    if (/[^A-Za-z0-9]/.test(password)) s++;
-    const lvl = [
-      {label:"",          color:"transparent"},
-      {label:"Débil",     color:"#c05353"},
-      {label:"Regular",   color:"#e07a3a"},
-      {label:"Buena",     color:"#c4963b"},
-      {label:"Fuerte",    color:"#4caf88"},
-      {label:"Muy fuerte",color:"#3a7ab5"},
-    ];
-    return { score:s, ...lvl[s] };
-  }, [password]);
+  const [error, setError]     = useState("");
+  const [msg, setMsg]         = useState("");
 
   const submit = async (e) => {
     e.preventDefault();
-    if (mode === "register" && !terms) { setError("Debes aceptar los términos de uso."); return; }
     setError(""); setMsg(""); setLoading(true);
     try {
       if (mode === "login") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       } else if (mode === "register") {
-        if (password.length < 8) throw new Error("La contraseña debe tener mínimo 8 caracteres.");
-        const { error } = await supabase.auth.signUp({ email, password, options:{ data:{ full_name:name } } });
+        const { error } = await supabase.auth.signUp({
+          email, password,
+          options: { data: { full_name: name } },
+        });
         if (error) throw error;
-        setMsg("¡Cuenta creada! Revisa tu email para confirmarla antes de entrar.");
+        setMsg("Revisa tu email para confirmar la cuenta.");
       } else {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
         if (error) throw error;
-        setMsg("Email enviado. Revisa tu bandeja de entrada y la carpeta de spam.");
+        setMsg("Email de recuperación enviado. Revisa tu bandeja.");
       }
     } catch (err) {
-      const m = err.message;
-      setError(
-        m.includes("Invalid login")       ? "Email o contraseña incorrectos." :
-        m.includes("already registered")  ? "Este email ya está registrado. Inicia sesión." :
-        m.includes("Email not confirmed") ? "Confirma tu email antes de entrar. Revisa tu bandeja." :
-        m.includes("Password should")     ? "La contraseña debe tener mínimo 8 caracteres." : m
-      );
+      setError(err.message);
     }
     setLoading(false);
   };
 
-  const switchMode = (m) => { setMode(m); setError(""); setMsg(""); };
-
-  const FEATURES = [
-    { icon:"👥", title:"Gestión de pacientes",  desc:"Historial, peso y composición corporal" },
-    { icon:"🗓", title:"Planificador semanal",   desc:"Dietas personalizadas con lista de compra" },
-    { icon:"📊", title:"Dashboard de ingresos",  desc:"Facturación por plan y métricas clave" },
-    { icon:"🖨️", title:"PDFs profesionales",     desc:"Menú semanal con portada para entregar" },
-    { icon:"🔍", title:"Base nutricional",        desc:"80+ alimentos + millones vía OpenFoodFacts" },
-    { icon:"💳", title:"Planes para pacientes",   desc:"Crea y gestiona los precios de tu consulta" },
-  ];
-
-  const inputStyle = (hasErr) => ({
-    width:"100%", padding:"11px 14px", borderRadius:9,
-    border:`1.5px solid ${hasErr ? "#c05353" : "#ede7da"}`,
-    background:"#fff", fontFamily:"'DM Sans',sans-serif",
-    fontSize:13, color:"#2a2a2a", outline:"none",
-    boxSizing:"border-box", transition:"border-color .15s",
-  });
-  const focusStyle = e => e.target.style.borderColor = "#5c7a5c";
-  const blurStyle  = e => { if (!error) e.target.style.borderColor = "#ede7da"; };
-
   return (
     <>
-      <AuthStyles/>
-      <div className="auth-shell">
-
-        {/* ── LEFT PANEL — hero ── */}
-        <div className="auth-hero">
-          <div style={{marginBottom:40}}>
-            <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
-              <span style={{fontSize:40}}>🌿</span>
-              <div>
-                <div style={{fontFamily:"'Playfair Display',serif",fontSize:33,fontWeight:700,color:"#fff",lineHeight:1}}>NutriPlanner</div>
-                <div style={{color:"#e8a96a",fontSize:11,fontWeight:700,letterSpacing:".18em",textTransform:"uppercase",marginTop:3}}>Pro</div>
+      <style>{`
+        @media (max-width: 800px) {
+          .auth-rhs { display: none !important; }
+        }
+      `}</style>
+      <div style={{minHeight:"100vh", display:"flex", background:"#fff"}}>
+        <div style={{flex:1, display:"flex", flexDirection:"column", padding:"clamp(24px, 5vw, 40px)"}}>
+          {onBack && (
+            <button onClick={onBack} style={{background:"none",border:"none",color:"var(--sage-dk)",fontSize:14,cursor:"pointer",marginBottom:20,padding:"4px 0",display:"inline-flex",alignItems:"center",gap:6, alignSelf:"flex-start", fontWeight:600}}>
+              ← Volver al inicio
+            </button>
+          )}
+          <div style={{maxWidth:400, margin:"auto", width:"100%"}}>
+            <div style={{marginBottom:32}}>
+              <div style={{fontSize:24, display:"flex", alignItems:"center", gap:8, marginBottom:24}}>
+                <span style={{fontSize:32}}>🌿</span>
+                <span style={{fontFamily:"'Playfair Display',serif",fontWeight:700,color:"var(--sage-dk)",fontSize:24}}>NutriPlanner <span style={{color:"var(--terra)",fontSize:11,fontWeight:800,letterSpacing:".14em",textTransform:"uppercase",verticalAlign:"middle"}}>Pro</span></span>
               </div>
-            </div>
-            <p style={{color:"rgba(255,255,255,.65)",fontSize:14,lineHeight:1.65,maxWidth:420,margin:0}}>
-              La plataforma todo-en-uno para nutricionistas que quieren escalar su consulta sin perder el trato personalizado.
-            </p>
-          </div>
-
-          <div className="auth-features" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,maxWidth:480}}>
-            {FEATURES.map((f,i)=>(
-              <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                <div style={{width:32,height:32,borderRadius:8,background:"rgba(255,255,255,.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{f.icon}</div>
-                <div>
-                  <div style={{fontWeight:700,fontSize:12,color:"#fff",marginBottom:1}}>{f.title}</div>
-                  <div style={{fontSize:10,color:"rgba(255,255,255,.5)",lineHeight:1.5}}>{f.desc}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{marginTop:36,padding:"13px 16px",background:"rgba(255,255,255,.08)",borderRadius:11,border:"1px solid rgba(255,255,255,.12)",maxWidth:460}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <div style={{display:"flex"}}>
-                {["🧑‍⚕️","👩‍⚕️","🧑‍⚕️"].map((e,i)=>(
-                  <div key={i} style={{width:27,height:27,borderRadius:"50%",background:"rgba(255,255,255,.15)",border:"2px solid rgba(255,255,255,.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,marginLeft:i?-5:0}}>{e}</div>
-                ))}
-              </div>
-              <div>
-                <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>+500 nutricionistas activos</div>
-                <div style={{fontSize:10,color:"rgba(255,255,255,.5)"}}>Cancela cuando quieras · Sin permanencia</div>
-              </div>
-              <div style={{marginLeft:"auto",display:"flex",gap:1}}>
-                {"★★★★★".split("").map((s,i)=><span key={i} style={{color:"#e8a96a",fontSize:13}}>{s}</span>)}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ── RIGHT PANEL — form ── */}
-        <div className="auth-form-panel">
-          <div style={{width:"100%",maxWidth:400}}>
-
-            <div style={{marginBottom:24}}>
-              <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:26,color:"#2a2a2a",marginBottom:4}}>
-                {mode==="login"    ? "Bienvenido de nuevo"  :
-                 mode==="register" ? "Crea tu cuenta"       : "Recuperar contraseña"}
+              
+              <h2 style={{fontSize:"clamp(26px, 4vw, 32px)", fontWeight:800, color:"#111", marginBottom:8, letterSpacing:"-.03em"}}>
+                {mode === "login" ? "Bienvenido de nuevo" : mode === "register" ? "Comienza tu prueba gratis" : "Recupera tu acceso"}
               </h2>
-              <p style={{fontSize:13,color:"#6b6b6b",margin:0}}>
-                {mode==="login"    ? "Accede a tu panel de nutricionista" :
-                 mode==="register" ? "Empieza gratis — sin tarjeta de crédito" :
-                 "Recibirás un enlace en tu email"}
+              <p style={{color:"#555", fontSize:15, lineHeight:1.6}}>
+                {mode === "login" 
+                  ? "Introduce tus datos para acceder a tu panel de gestión."
+                  : mode === "register"
+                  ? "Únete a cientos de profesionales. Sin tarjeta de crédito."
+                  : "Te enviaremos un enlace para restablecer tu contraseña."}
               </p>
+              
+              {preselectedPlan && (
+                <div style={{marginTop:16,display:"inline-flex",alignItems:"center",background:"rgba(76,175,136,.1)",color:"#2d7a5a",fontSize:13,fontWeight:600,padding:"6px 16px",borderRadius:24,gap:8}}>
+                  <span style={{fontSize:18}}>{preselectedPlan.icon}</span> 
+                  <span>Plan {preselectedPlan.name} seleccionado — {preselectedPlan.price}€/mes</span>
+                </div>
+              )}
             </div>
 
-            {error && (
-              <div style={{background:"rgba(192,83,83,.1)",color:"#c05353",borderRadius:10,padding:"11px 14px",fontSize:13,marginBottom:16,display:"flex",alignItems:"center",gap:8}}>
-                <span>⚠️</span>{error}
-              </div>
-            )}
-            {msg && (
-              <div style={{background:"rgba(92,122,92,.1)",color:"#3a5c3a",borderRadius:10,padding:"11px 14px",fontSize:13,marginBottom:16,display:"flex",alignItems:"center",gap:8}}>
-                <span>✅</span>{msg}
-              </div>
-            )}
+            {error && <div style={{background:"#fef0f0",borderLeft:"4px solid var(--danger)",color:"#c53030",padding:"12px 16px",fontSize:14,marginBottom:24,borderRadius:"0 8px 8px 0"}}>{error}</div>}
+            {msg   && <div style={{background:"#f0fdf4",borderLeft:"4px solid var(--sage-dk)",color:"#15803d",padding:"12px 16px",fontSize:14,marginBottom:24,borderRadius:"0 8px 8px 0"}}>{msg}</div>}
 
-            <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:14}}>
-
-              {mode==="register" && (
-                <div>
-                  <label style={{fontSize:12,fontWeight:600,color:"#2a2a2a",display:"block",marginBottom:5}}>Nombre completo</label>
-                  <input style={inputStyle(false)} value={name} onChange={e=>setName(e.target.value)}
-                    placeholder="Dra. María García" required autoFocus
-                    onFocus={focusStyle} onBlur={blurStyle}/>
+            <form onSubmit={submit} style={{display:"flex", flexDirection:"column", gap:16}}>
+              {mode === "register" && (
+                <div style={{display:"flex", flexDirection:"column", gap:6}}>
+                  <label style={{fontSize:13, fontWeight:600, color:"#333"}}>Nombre completo</label>
+                  <input style={{padding:"12px 16px", borderRadius:12, border:"1px solid #ddd", fontSize:15, outline:"none", transition:"all 0.2s"}} 
+                    onFocus={e=>e.target.style.borderColor="var(--sage-dk)"} onBlur={e=>e.target.style.borderColor="#ddd"}
+                    value={name} onChange={e=>setName(e.target.value)} placeholder="Ej. Dra. María García" required/>
                 </div>
               )}
-
-              <div>
-                <label style={{fontSize:12,fontWeight:600,color:"#2a2a2a",display:"block",marginBottom:5}}>Email profesional</label>
-                <input type="email" style={inputStyle(!!error&&mode==="login")}
-                  value={email} onChange={e=>setEmail(e.target.value)}
-                  placeholder="nutricionista@email.com" required
-                  autoFocus={mode!=="register"} onFocus={focusStyle} onBlur={blurStyle}/>
+              <div style={{display:"flex", flexDirection:"column", gap:6}}>
+                <label style={{fontSize:13, fontWeight:600, color:"#333"}}>Correo electrónico</label>
+                <input type="email" style={{padding:"12px 16px", borderRadius:12, border:"1px solid #ddd", fontSize:15, outline:"none", transition:"all 0.2s"}}
+                  onFocus={e=>e.target.style.borderColor="var(--sage-dk)"} onBlur={e=>e.target.style.borderColor="#ddd"}
+                  value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@email.com" required autoFocus/>
               </div>
-
-              {mode!=="forgot" && (
-                <div>
-                  <label style={{fontSize:12,fontWeight:600,color:"#2a2a2a",display:"block",marginBottom:5}}>Contraseña</label>
-                  <div style={{position:"relative"}}>
-                    <input type={showPw?"text":"password"} style={{...inputStyle(!!error&&mode==="login"),paddingRight:44}}
-                      value={password} onChange={e=>setPass(e.target.value)}
-                      placeholder="Mínimo 8 caracteres" required minLength={8}
-                      onFocus={focusStyle} onBlur={blurStyle}/>
-                    <button type="button" onClick={()=>setShowPw(v=>!v)} tabIndex={-1}
-                      style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:15,color:"#6b6b6b",padding:4}}>
-                      {showPw?"🙈":"👁️"}
-                    </button>
-                  </div>
-                  {mode==="register" && password.length>0 && (
-                    <div style={{marginTop:6}}>
-                      <div style={{display:"flex",gap:3}}>
-                        {[1,2,3,4,5].map(n=>(
-                          <div key={n} style={{flex:1,height:3,borderRadius:3,
-                            background:n<=pwStrength.score?pwStrength.color:"#ede7da",
-                            transition:"background .22s"}}/>
-                        ))}
-                      </div>
-                      {pwStrength.label && (
-                        <div style={{fontSize:10,fontWeight:700,marginTop:3,color:pwStrength.color}}>
-                          Seguridad: {pwStrength.label}
-                        </div>
-                      )}
-                    </div>
-                  )}
+              {mode !== "forgot" && (
+                <div style={{display:"flex", flexDirection:"column", gap:6}}>
+                  <label style={{fontSize:13, fontWeight:600, color:"#333"}}>Contraseña</label>
+                  <input type="password" style={{padding:"12px 16px", borderRadius:12, border:"1px solid #ddd", fontSize:15, outline:"none", transition:"all 0.2s"}}
+                    onFocus={e=>e.target.style.borderColor="var(--sage-dk)"} onBlur={e=>e.target.style.borderColor="#ddd"}
+                    value={password} onChange={e=>setPass(e.target.value)} placeholder="••••••••" required minLength={8}/>
                 </div>
               )}
-
-              {mode==="register" && (
-                <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",fontSize:12,color:"#6b6b6b",lineHeight:1.5,userSelect:"none"}}>
-                  <input type="checkbox" checked={terms} onChange={e=>setTerms(e.target.checked)}
-                    style={{width:14,height:14,marginTop:2,accentColor:"#3a5c3a",flexShrink:0}}/>
-                  <span>
-                    Acepto los <b style={{color:"#3a5c3a"}}>términos de uso</b> y la{" "}
-                    <b style={{color:"#3a5c3a"}}>política de privacidad</b>. Los datos de los pacientes se almacenan de forma segura.
-                  </span>
-                </label>
-              )}
-
-              <button type="submit"
-                style={{width:"100%",padding:"13px",borderRadius:9,border:"none",cursor:"pointer",
-                  background: loading||(mode==="register"&&!terms) ? "#aaa" : "#3a5c3a",
-                  color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:700,
-                  transition:"background .16s",marginTop:2}}
-                disabled={loading||(mode==="register"&&!terms)}>
-                {loading
-                  ? <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                      <div className="sp2" style={{borderTopColor:"#fff",borderColor:"rgba(255,255,255,.3)"}}/>Cargando...
-                    </span>
-                  : mode==="login"    ? "Entrar a mi panel"
-                  : mode==="register" ? "Crear cuenta gratis"
-                  : "Enviar enlace de recuperación"}
+              
+              <button type="submit" disabled={loading} style={{
+                background: "var(--sage-dk)", color: "#fff", padding: "14px", borderRadius: 12, 
+                border: "none", fontSize: 16, fontWeight: 700, cursor: "pointer", 
+                marginTop: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                opacity: loading ? 0.7 : 1, transition:"transform 0.1s"
+              }} onMouseDown={e=>e.currentTarget.style.transform="scale(0.98)"} onMouseUp={e=>e.currentTarget.style.transform="scale(1)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+                {loading ? <div className="sp2" style={{width:20,height:20,borderWidth:2,borderColor:"rgba(255,255,255,.3)",borderTopColor:"#fff"}}/> : null}
+                {mode === "login" ? "Entrar a mi cuenta" : mode === "register" ? "Crear cuenta gratis" : "Enviar instrucciones"}
               </button>
             </form>
 
-            <div style={{marginTop:18}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,margin:"8px 0"}}>
-                <div style={{flex:1,height:1,background:"#ede7da"}}/>
-                <span style={{fontSize:11,color:"#6b6b6b",whiteSpace:"nowrap"}}>o</span>
-                <div style={{flex:1,height:1,background:"#ede7da"}}/>
-              </div>
-
-              {mode==="login" && (
-                <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                  <button type="button"
-                    style={{width:"100%",padding:"11px 14px",borderRadius:9,border:"1.5px solid #ede7da",
-                      background:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
-                      color:"#3a5c3a",cursor:"pointer",transition:"border-color .15s"}}
-                    onClick={()=>switchMode("register")}
-                    onMouseOver={e=>e.target.style.borderColor="#5c7a5c"}
-                    onMouseOut={e=>e.target.style.borderColor="#ede7da"}>
-                    Crear cuenta nueva
-                  </button>
-                  <button type="button"
-                    style={{background:"none",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"#6b6b6b",padding:"3px 0"}}
-                    onClick={()=>switchMode("forgot")}>
-                    Olvidé mi contraseña
-                  </button>
-                </div>
-              )}
-              {mode!=="login" && (
-                <button type="button"
-                  style={{width:"100%",padding:"11px 14px",borderRadius:9,border:"1.5px solid #ede7da",
-                    background:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
-                    color:"#2a2a2a",cursor:"pointer",transition:"border-color .15s"}}
-                  onClick={()=>switchMode("login")}
-                  onMouseOver={e=>e.target.style.borderColor="#5c7a5c"}
-                  onMouseOut={e=>e.target.style.borderColor="#ede7da"}>
-                  ← Volver al inicio de sesión
-                </button>
+            <div style={{marginTop:32, textAlign:"center", fontSize:14, color:"#666"}}>
+              {mode === "login" ? (
+                <>
+                  ¿No tienes cuenta? <button style={{background:"none",border:"none",color:"var(--sage-dk)",fontWeight:700,cursor:"pointer",fontSize:14}} onClick={()=>{setMode("register");setError("");}}>Regístrate gratis</button>
+                  <div style={{marginTop:16}}>
+                    <button style={{background:"none",border:"none",color:"#888",cursor:"pointer",fontSize:13,textDecoration:"underline"}} onClick={()=>{setMode("forgot");setError("");}}>¿Has olvidado tu contraseña?</button>
+                  </div>
+                </>
+              ) : mode === "register" ? (
+                <>
+                  ¿Ya tienes una cuenta? <button style={{background:"none",border:"none",color:"var(--sage-dk)",fontWeight:700,cursor:"pointer",fontSize:14}} onClick={()=>{setMode("login");setError("");}}>Inicia sesión</button>
+                  <p style={{fontSize:12, color:"#aaa", marginTop:24, lineHeight:1.5}}>Al registrarte, aceptas nuestros términos de servicio y política de privacidad.<br/>El primer mes es totalmente gratuito.</p>
+                </>
+              ) : (
+                <button style={{background:"none",border:"none",color:"var(--sage-dk)",fontWeight:700,cursor:"pointer",fontSize:14}} onClick={()=>{setMode("login");setError("");}}>← Volver a iniciar sesión</button>
               )}
             </div>
-
-            <p style={{textAlign:"center",fontSize:10,color:"rgba(107,107,107,.7)",marginTop:18,lineHeight:1.6}}>
-              🔒 Conexión cifrada · Datos protegidos con Supabase<br/>
-              Cumple RGPD · Servidores en Europa
-            </p>
           </div>
         </div>
-
+        
+        <div className="auth-rhs" style={{flex:1, display:"flex", background:"linear-gradient(135deg, #e4ede8 0%, #f0f4f1 100%)", position:"relative", overflow:"hidden", alignItems:"center", justifyContent:"center"}}>
+          <div style={{position:"absolute", width:400, height:400, background:"rgba(76,175,136,0.1)", borderRadius:"50%", filter:"blur(80px)", top:"-100px", right:"-100px"}}></div>
+          <div style={{position:"absolute", width:300, height:300, background:"rgba(226,177,153,0.1)", borderRadius:"50%", filter:"blur(80px)", bottom:"-50px", left:"-50px"}}></div>
+          
+          <div style={{position:"relative", zIndex:1, width:"80%", maxWidth:480}}>
+            <div style={{background:"rgba(255,255,255,0.7)", backdropFilter:"blur(20px)", padding:"32px", borderRadius:24, boxShadow:"0 20px 40px rgba(0,0,0,0.06)", transform:"rotate(-2deg)", border:"1px solid rgba(255,255,255,0.8)"}}>
+              <div style={{display:"flex", gap:16, marginBottom:20}}>
+                <div style={{width:48,height:48,borderRadius:"50%",background:"var(--sage-dk)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>👩🏻‍⚕️</div>
+                <div>
+                  <div style={{fontWeight:800, color:"#111", fontSize:16}}>Dra. Elena Castro</div>
+                  <div style={{color:"#666", fontSize:13}}>Nutricionista Clínica</div>
+                </div>
+              </div>
+              <p style={{fontSize:16, lineHeight:1.6, color:"#333", fontStyle:"italic", margin:0}}>
+                "NutriPlanner Pro ha transformado por completo mi consulta. Ahora tardo minutos en crear menús que antes me llevaban horas, y mis pacientes están encantados."
+              </p>
+              <div style={{display:"flex", gap:4, marginTop:16, color:"#fbbf24", fontSize:20}}>★★★★★</div>
+            </div>
+            
+            <div style={{position:"absolute", right:-30, bottom:-40, background:"#fff", padding:"16px 24px", borderRadius:100, boxShadow:"0 10px 30px rgba(0,0,0,0.08)", display:"flex", alignItems:"center", gap:12, transform:"rotate(3deg)"}}>
+               <div style={{width:12, height:12, borderRadius:"50%", background:"#22c55e", boxShadow:"0 0 10px #22c55e"}}/>
+               <span style={{fontWeight:700, color:"#111", fontSize:14}}>+500 Nutricionistas activos</span>
+            </div>
+          </div>
+        </div>
       </div>
     </>
   );
@@ -636,6 +872,9 @@ function SubscriptionGate({ children }) {
 /* ─── AUTH GATE ──────────────────────────────────────────────────────────── */
 function AuthGate({ children }) {
   const { user, authReady } = useAuth();
+  const [authMode, setAuthMode] = useState(null); // null=landing, "login"|"register"
+  const [preselectedPlan, setPreselectedPlan] = useState(null);
+
   if (!authReady) {
     return (
       <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--cream)"}}>
@@ -646,7 +885,18 @@ function AuthGate({ children }) {
       </div>
     );
   }
-  if (!user) return <AuthPage />;
+  if (!user) {
+    if (authMode) {
+      return <AuthPage initialMode={authMode} preselectedPlan={preselectedPlan} onBack={()=>setAuthMode(null)} />;
+    }
+    return (
+      <LandingPage
+        onLogin={() => setAuthMode("login")}
+        onRegister={() => setAuthMode("register")}
+        onSelectPlan={(plan) => { setPreselectedPlan(plan); setAuthMode("register"); }}
+      />
+    );
+  }
   return <SubscriptionGate>{children}</SubscriptionGate>;
 }
 
@@ -2266,81 +2516,13 @@ const UNIT_MAP = {
   kg:'kg',kilogramo:'kg',kilogramos:'kg',
   ml:'ml',mililitro:'ml',mililitros:'ml',
   l:'l',litro:'l',litros:'l',
-  cucharada:'cucharada',cucharadas:'cucharada',cda:'cucharada',
-  cucharadita:'cucharadita',cucharaditas:'cucharadita',cdta:'cucharadita',
+  cucharada:'cucharada',cucharadas:'cucharada',
+  cucharadita:'cucharadita',cucharaditas:'cucharadita',
   taza:'taza',tazas:'taza',
   unidad:'ud',unidades:'ud',pieza:'ud',piezas:'ud',ud:'ud',
   lata:'ud',bote:'ud',sobre:'ud',bolsa:'ud',
-  ralladura:'ud',pizca:'pizca',pizcas:'pizca',
-  puñado:'puñado',puñados:'puñado',
-  diente:'ud',dientes:'ud',
-  rodaja:'ud',rodajas:'ud',
-  rebanada:'ud',rebanadas:'ud',
-  loncha:'ud',lonchas:'ud',
+  ralladura:'ud',pizca:'ud',puñado:'ud',diente:'ud',dientes:'ud',
 };
-
-/**
- * Conversión de unidades volumétricas/conteo a gramos para calcular macros.
- * Fuente: medidas estándar de cocina española + tablas nutricionales BEDCA.
- * Las macros en FOOD_DB siempre son por 100g, así que convertimos todo a g.
- */
-const UNIT_TO_GRAMS = {
-  // Medidas de volumen
-  cucharada:   15,    // 1 cda sopera = ~15 ml / 15 g (agua), varía por alimento
-  cucharadita:  5,    // 1 cdta = ~5 ml / 5 g
-  taza:        240,   // 1 taza americana = 240 ml
-  l:          1000,   // 1 litro = 1000 g (aproximado para líquidos)
-  // Peso
-  g:             1,
-  kg:         1000,
-  ml:            1,   // densidad ~1 g/ml para la mayoría de líquidos
-  // Unidades de conteo — usamos peso medio estándar
-  ud:           50,   // huevo mediano ~50g, valor genérico para "1 unidad"
-  // Especiales — sin conversión directa, se ignoran en el cálculo
-  pizca:         1,   // ~0.5-1g, se asigna 1g simbólico
-  puñado:       30,   // ~30g aproximado
-};
-
-/**
- * Factores de densidad específicos por tipo de alimento para cucharada/taza.
- * Mejoran la precisión cuando el alimento coincide con estas categorías.
- */
-const DENSITY_FACTORS = {
-  // nombre parcial del alimento → gramos por cucharada
-  'aceite':       14,  // aceite de oliva: ~14g por cda
-  'mantequilla':  14,
-  'miel':         21,  // miel: ~21g por cda (más densa)
-  'azucar':       12,
-  'sal':          18,
-  'harina':        8,  // harina tamizada: ~8g por cda
-  'leche':        15,
-  'nata':         15,
-  'yogur':        15,
-  'tomate':       16,
-  'queso':         7,  // queso rallado: ~7g por cda
-};
-
-/** Calcula los gramos reales de un ingrediente según unidad y nombre */
-const toGrams = (qty, unit, name='') => {
-  const u = (unit||'g').toLowerCase();
-  if (u === 'g' || u === 'kg') return qty * UNIT_TO_GRAMS[u];
-  if (u === 'ml' || u === 'l')  return qty * UNIT_TO_GRAMS[u];
-  if (u === 'cucharada' || u === 'cucharadita') {
-    const base = u === 'cucharada' ? 15 : 5;
-    // Busca factor específico por tipo de alimento
-    const nameLow = name.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-    for (const [key, factor] of Object.entries(DENSITY_FACTORS)) {
-      if (nameLow.includes(key)) return qty * (u === 'cucharada' ? factor : factor / 3);
-    }
-    return qty * base;
-  }
-  if (u === 'taza')   return qty * 240;
-  if (u === 'pizca')  return qty * 1;
-  if (u === 'puñado') return qty * 30;
-  if (u === 'ud')     return qty * 50;  // peso medio genérico
-  return qty; // fallback: asumir gramos
-};
-
 // Words to strip from names so matching is cleaner
 const STRIP_WORDS = ['fresco','fresca','natural','crudo','cruda','cocido','cocida','hervido','hervida','asado','asada','picado','picada','troceado','grande','pequeño','pequeña','mediano','mediana'];
 
@@ -2386,23 +2568,20 @@ const parsePasted = (text) => {
     const matches = searchLocal(searchName);
     const best = matches[0];
 
-    // Convierte la cantidad a gramos usando la tabla de unidades
-    // FOOD_DB siempre trabaja por 100g, así que factor = gramos_reales / 100
-    const gramsTotal = toGrams(qty, unit, name);
-    const factor = gramsTotal / 100;
+    const unitW = { 'cucharada': 15, 'cucharadita': 5, 'taza': 240, 'kg': 1000, 'l': 1000, 'ml': 1, 'ud': 100, 'g': 1 }[unit] || 1;
+    const factor = (qty * unitW) / 100;
 
     if (best) {
       return {
         id: Date.now() + i + Math.random(),
         name, qty, unit,
-        _grams: Math.round(gramsTotal),  // peso real en gramos (útil para unidades volumétricas)
         kcal:  Math.round(best.kcal100  * factor),
         prot:  Math.round(best.prot100  * factor * 10) / 10,
         carbs: Math.round(best.carbs100 * factor * 10) / 10,
         fat:   Math.round(best.fat100   * factor * 10) / 10,
         _auto: true,
         _k100: best.kcal100, _p100: best.prot100, _c100: best.carbs100, _f100: best.fat100,
-        _dbName: best.name,
+        _dbName: best.name,   // for the "matched as" indicator
       };
     }
 
@@ -2558,226 +2737,32 @@ function Toast({msg,type,onHide}){useEffect(()=>{const t=setTimeout(onHide,3400)
 function BarcodeScanner({onDetect,onClose}){const vidRef=useRef(null);const doneRef=useRef(false);const[msg,setMsg]=useState("Iniciando camara...");const[err,setErr]=useState(null);useEffect(()=>{let stream=null,raf=null,det=null;const tick=async()=>{if(doneRef.current||!vidRef.current)return;try{const found=await det.detect(vidRef.current);if(found.length&&!doneRef.current){doneRef.current=true;if(stream)stream.getTracks().forEach(t=>t.stop());setTimeout(()=>onDetect(found[0].rawValue),350);return;}}catch{}raf=requestAnimationFrame(tick);};(async()=>{if(!("BarcodeDetector"in window)){setErr("BarcodeDetector no disponible.\nUsa Chrome 83+ o Edge 83+.");return;}try{const fmts=await BarcodeDetector.getSupportedFormats();const want=["ean_13","ean_8","upc_a","upc_e","code_128"].filter(f=>fmts.includes(f));det=new BarcodeDetector({formats:want.length?want:["ean_13"]});stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});vidRef.current.srcObject=stream;await vidRef.current.play();setMsg("Apunta al codigo de barras");raf=requestAnimationFrame(tick);}catch(e){setErr(e.name==="NotAllowedError"?"Permiso de camara denegado.":"Error: "+e.message);}})();return()=>{if(stream)stream.getTracks().forEach(t=>t.stop());if(raf)cancelAnimationFrame(raf);};},[]);return(<div className="sc-bg" onClick={e=>e.target===e.currentTarget&&onClose()}><div className="sc-box"><button className="sc-x" onClick={onClose}>✕</button><video ref={vidRef} className="sc-vid" playsInline muted/>{!err&&<div className="sc-aim"><div className="sc-frame"><div className="sc-line"/></div></div>}</div><div className="sc-cap">{err?<span style={{whiteSpace:"pre-line",color:"#ff9999",fontSize:12}}>{err}</span>:<span>{msg}</span>}</div><button className="btn btn-g" style={{color:"rgba(255,255,255,.65)",marginTop:4}} onClick={onClose}>Cancelar</button></div>);}
 
 /* ─── FOOD SEARCH ─────────────────────────────────────────────────────────── */
-/* ─── OFF API helpers ───────────────────────────────────────────────────── */
-const OFF_FIELDS = "product_name,product_name_es,nutriments,image_small_url";
-
-/** Parsea un producto de OpenFoodFacts y devuelve el formato interno, o null si no hay datos válidos */
-const parseOFFProduct = (product) => {
-  if (!product) return null;
-  const n = product.nutriments || {};
-  // Energy: kcal preferred, fallback kJ÷4.184, fallback generic
-  const kcal = n["energy-kcal_100g"]
-    ?? (n["energy-kj_100g"] ? Math.round(n["energy-kj_100g"] / 4.184) : null)
-    ?? (n["energy_100g"]    ? Math.round(n["energy_100g"]    / 4.184) : 0);
-  if (!kcal || kcal <= 0) return null;
-  const name = (
-    product.product_name_es || product.product_name || product.product_name_en || "Producto"
-  ).trim().replace(/^\s*\(.*?\)\s*/, "").trim();
-  if (!name || name.length < 2) return null;
-  return {
-    name,
-    kcal100:  Math.round(kcal),
-    prot100:  Math.round((n.proteins_100g      ?? n["proteins-100g"]      ?? 0) * 10) / 10,
-    carbs100: Math.round((n.carbohydrates_100g ?? n["carbohydrates-100g"] ?? 0) * 10) / 10,
-    fat100:   Math.round((n.fat_100g           ?? n["fat-100g"]           ?? 0) * 10) / 10,
-    _source: "OpenFoodFacts",
-  };
-};
-
-/** Busca un producto por código de barras en OpenFoodFacts */
-const searchOFFByBarcode = async (code) => {
-  const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}`;
-  const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const d = await r.json();
-  if (d.status !== 1) throw new Error("Código no encontrado en OpenFoodFacts");
-  return parseOFFProduct(d.product);
-};
-
-/** Busca productos por nombre en OpenFoodFacts — devuelve array
- *  Estrategia dual: primero España, luego fallback global
- */
-const searchOFFByName = async (query) => {
-  const base   = "https://world.openfoodfacts.org/cgi/search.pl";
-  const common = `search_simple=1&action=process&json=1&fields=${OFF_FIELDS}&page_size=10`;
-
-  const tryFetch = async (url) => {
-    try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(9000) });
-      if (!r.ok) return [];
-      const d = await r.json();
-      return (d.products || []).map(parseOFFProduct).filter(Boolean);
-    } catch { return []; }
-  };
-
-  // Intento 1: España/español
-  const esRes = await tryFetch(`${base}?search_terms=${encodeURIComponent(query)}&${common}&lc=es&countries_tags=spain`);
-  if (esRes.length >= 2) return esRes.slice(0, 6);
-
-  // Fallback: búsqueda global sin filtro de idioma
-  const globalRes = await tryFetch(`${base}?search_terms=${encodeURIComponent(query)}&${common}`);
-  const seen = new Set(esRes.map(f => f.name.toLowerCase()));
-  const merged = [...esRes];
-  for (const f of globalRes) {
-    if (!seen.has(f.name.toLowerCase())) { merged.push(f); seen.add(f.name.toLowerCase()); }
-  }
-  return merged.slice(0, 6);
-};
-
-/* ─── FOOD SEARCH ─────────────────────────────────────────────────────────── */
-function FoodSearch({ onSelect, onClose }) {
-  const [q,       setQ]       = useState("");
-  const [results, setRes]     = useState([]);
-  const [offRes,  setOffRes]  = useState([]);   // OpenFoodFacts results
-  const [scanOn,  setScan]    = useState(false);
-  const [status,  setSt]      = useState("Escribe el nombre de un alimento");
-  const [scMsg,   setScMsg]   = useState("");
-  const [scLoad,  setScLd]    = useState(false);
-  const [offLoad, setOffLd]   = useState(false);
-  const [tab,     setTab]     = useState("local");  // "local" | "off"
-  const timer = useRef(null);
-  const offTimer = useRef(null);
-
-  // Search in local DB immediately
-  const doLocalSearch = (query) => {
-    if (!query || query.length < 2) { setRes([]); setSt("Escribe al menos 2 letras"); return; }
-    const found = searchLocal(query);
-    setRes(found);
-    setSt(found.length ? `${found.length} resultado(s) en base local:` : "Sin resultados en base local.");
-  };
-
-  // Search in OpenFoodFacts with debounce
-  const doOFFSearch = async (query) => {
-    if (!query || query.length < 3) { setOffRes([]); return; }
-    setOffLd(true);
-    try {
-      const found = await searchOFFByName(query);
-      setOffRes(found);
-      if (tab === "off") setSt(found.length ? `${found.length} resultados en OpenFoodFacts:` : "Sin resultados en OpenFoodFacts.");
-    } catch {
-      setOffRes([]);
+function FoodSearch({onSelect,onClose}){const[q,setQ]=useState("");const[results,setRes]=useState([]);const[scanOn,setScan]=useState(false);const[status,setSt]=useState("Escribe el nombre de un alimento");const[scMsg,setScMsg]=useState("");const[scLoad,setScLd]=useState(false);const timer=useRef(null);
+const doSearch=async query=>{
+  if(!query||query.length<2){setRes([]);setSt("Escribe al menos 2 letras");return;}
+  setScLd(true);
+  const foundLocal=searchLocal(query);
+  let best=[...foundLocal];
+  setRes(best);
+  try{
+    const r=await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=15`);
+    const d=await r.json();
+    if(d.products){
+      const off=d.products.map(p=>{
+        const n=p.nutriments||{}; const k=n["energy-kcal_100g"]||(n.energy_100g?n.energy_100g/4.184:0);
+        if(k<=0)return null;
+        return{name:(p.product_name_es||p.product_name||p.brands||"Producto").trim(),kcal100:Math.round(k),prot100:Math.round((n.proteins_100g||0)*10)/10,carbs100:Math.round((n.carbohydrates_100g||0)*10)/10,fat100:Math.round((n.fat_100g||0)*10)/10,_off:true};
+      }).filter(Boolean);
+      const seen=new Set(best.map(x=>x.name.toLowerCase()));
+      off.forEach(i=>{if(!seen.has(i.name.toLowerCase())){best.push(i);seen.add(i.name.toLowerCase());}});
     }
-    setOffLd(false);
-  };
-
-  const handleInput = (v) => {
-    setQ(v);
-    clearTimeout(timer.current);
-    clearTimeout(offTimer.current);
-    timer.current    = setTimeout(() => doLocalSearch(v), 150);
-    offTimer.current = setTimeout(() => doOFFSearch(v), 600);  // longer delay for API
-  };
-
-  const handleBarcode = async (code) => {
-    setScan(false); setScLd(true); setScMsg(`Buscando código ${code}…`);
-    try {
-      const food = await searchOFFByBarcode(code);
-      if (food) {
-        setOffRes([food]); setQ(food.name);
-        setScMsg(`✓ ${food.name} encontrado`);
-        setSt("Clic para seleccionar:");
-        setTab("off");
-      } else {
-        setScMsg("Sin datos nutricionales para este código.");
-      }
-    } catch (err) {
-      const msg = err.message.includes("Código") ? "Código no encontrado. Prueba a buscarlo por nombre." : "Sin conexión. Busca por nombre.";
-      setScMsg(msg);
-    }
-    setScLd(false);
-  };
-
-  const currentResults = tab === "local" ? results : offRes;
-  const isLoading = tab === "off" ? offLoad : false;
-
-  return (
-    <>
-      {scanOn && <BarcodeScanner onDetect={handleBarcode} onClose={() => setScan(false)} />}
-      <div className="sp">
-        {/* Search bar */}
-        <div className="f g8 ac mb16" style={{ flexWrap: "wrap" }}>
-          <input
-            className="fi" autoFocus
-            style={{ flex: 1, minWidth: 180, padding: "8px 12px", fontSize: 13 }}
-            placeholder="Buscar alimento…"
-            value={q}
-            onChange={e => handleInput(e.target.value)}
-          />
-          <button className="btn btn-i btn-sm" onClick={() => setScan(true)}>📷 Escanear</button>
-          <button className="btn btn-g btn-sm" onClick={onClose}>✕</button>
-        </div>
-
-        {/* Source tabs */}
-        <div style={{ display: "flex", gap: 0, marginBottom: 10, borderBottom: "2px solid var(--cream-dk)" }}>
-          <button
-            style={{
-              padding: "6px 14px", border: "none", background: "none", cursor: "pointer",
-              fontSize: 12, fontWeight: 700, color: tab === "local" ? "var(--sage-dk)" : "var(--mid)",
-              borderBottom: tab === "local" ? "2px solid var(--sage-dk)" : "2px solid transparent",
-              marginBottom: -2,
-            }}
-            onClick={() => { setTab("local"); setSt(results.length ? `${results.length} resultado(s):` : "Sin resultados."); }}
-          >
-            📚 Base local ({results.length})
-          </button>
-          <button
-            style={{
-              padding: "6px 14px", border: "none", background: "none", cursor: "pointer",
-              fontSize: 12, fontWeight: 700, color: tab === "off" ? "var(--info)" : "var(--mid)",
-              borderBottom: tab === "off" ? "2px solid var(--info)" : "2px solid transparent",
-              marginBottom: -2, display: "flex", alignItems: "center", gap: 5,
-            }}
-            onClick={() => { setTab("off"); setSt(offRes.length ? `${offRes.length} resultado(s):` : q.length >= 3 ? "Sin resultados." : "Escribe 3+ letras."); }}
-          >
-            🌍 OpenFoodFacts
-            {offLoad && <div className="sp2 sp2-dk" style={{ width: 10, height: 10 }} />}
-            {!offLoad && <span style={{ fontSize: 10, background: "rgba(58,122,181,.12)", color: "var(--info)", borderRadius: 20, padding: "1px 6px" }}>{offRes.length}</span>}
-          </button>
-        </div>
-
-        {/* Barcode feedback */}
-        {scMsg && <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--sage-dk)" }}>{scMsg}</p>}
-        {scLoad && <div className="f ac g8 ts tm"><div className="sp2 sp2-dk" />Consultando OpenFoodFacts…</div>}
-
-        {/* Status */}
-        {!scLoad && <p style={{ fontSize: 11, color: "var(--mid)", marginBottom: 6 }}>{status}</p>}
-
-        {/* Results */}
-        {isLoading && tab === "off" && (
-          <div className="f ac g8 ts tm" style={{ padding: "12px 0" }}>
-            <div className="sp2 sp2-dk" />Buscando en OpenFoodFacts…
-          </div>
-        )}
-        {!isLoading && currentResults.length > 0 && (
-          <div className="fl-list">
-            {currentResults.map((f, i) => (
-              <div key={i} className="fl-item" onClick={() => onSelect(f)}>
-                <div style={{ flex: 1 }}>
-                  <div className="fl-name">{f.name}</div>
-                  <div style={{ fontSize: 10, color: "var(--mid)" }}>
-                    por 100g {f._source && <span style={{ color: "var(--info)", fontStyle: "italic" }}>· {f._source}</span>}
-                  </div>
-                </div>
-                <div className="fl-macros">
-                  <span><b>{f.kcal100}</b>kcal</span>
-                  <span><b>{f.prot100}g</b>P</span>
-                  <span><b>{f.carbs100}g</b>HC</span>
-                  <span><b>{f.fat100}g</b>G</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {!isLoading && tab === "off" && q.length >= 3 && offRes.length === 0 && !offLoad && (
-          <div style={{ fontSize: 12, color: "var(--mid)", padding: "10px 0", textAlign: "center" }}>
-            Sin resultados en OpenFoodFacts para "{q}".<br/>
-            <span style={{ fontSize: 11 }}>Prueba con términos más cortos o en inglés.</span>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
+  }catch(e){}
+  setRes(best);setSt(best.length?best.length+" resultado(s):":"Sin resultados.");setScLd(false);
+};
+  const handleInput=v=>{setQ(v);clearTimeout(timer.current);timer.current=setTimeout(()=>doSearch(v),400);};
+  const handleBarcode=async code=>{if(!code)return;setScan(false);setScLd(true);setScMsg("Buscando "+code+"...");try{const r=await fetch("https://world.openfoodfacts.org/api/v2/product/"+code+".json?fields=product_name,nutriments");const d=await r.json();if(d.status===1&&d.product){const n=d.product.nutriments||{};const kcal=n["energy-kcal_100g"]||(n.energy_100g?n.energy_100g/4.184:0);if(kcal>0){const food={name:(d.product.product_name||"Producto").trim(),kcal100:Math.round(kcal),prot100:Math.round((n.proteins_100g||0)*10)/10,carbs100:Math.round((n.carbohydrates_100g||0)*10)/10,fat100:Math.round((n.fat_100g||0)*10)/10};setRes([food]);setQ(food.name);setScMsg("Producto encontrado");setSt("Clic para seleccionar:");}else setScMsg("Sin datos nutricionales.");}else setScMsg("Codigo no encontrado.");}catch{setScMsg("Sin conexion. Busca por nombre.");}setScLd(false);};
+  const [bcode, setBcode] = useState("");
+  return(<>{scanOn&&<BarcodeScanner onDetect={handleBarcode} onClose={()=>setScan(false)}/>}<div className="sp" onClick={e=>e.stopPropagation()}><div className="f g8 ac mb16" style={{flexWrap:"wrap"}}><input className="fi" autoFocus style={{flex:1,minWidth:140,padding:"8px 12px",fontSize:13}} placeholder="Buscar alimento (ej: Garbanzos)..." value={q} onChange={e=>handleInput(e.target.value)}/><div style={{display:"flex",gap:4}}><input className="fi" style={{width: 130, padding:"8px 12px", fontSize:13}} placeholder="Cód. Barras" value={bcode} onChange={e=>setBcode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")handleBarcode(bcode);}}/><button className="btn btn-o btn-sm" onClick={()=>handleBarcode(bcode)}>🔍 Cód.</button></div><button className="btn btn-i btn-sm" onClick={()=>setScan(true)}>📷 Escanear</button><a href="https://es.openfoodfacts.org" target="_blank" rel="noreferrer" className="btn btn-i btn-sm" style={{textDecoration:"none",display:"inline-flex",alignItems:"center"}}>🌐 Ir a web OpenFood</a><button className="btn btn-g btn-sm" onClick={onClose}>✕ Cerrar</button></div>{scMsg&&<p style={{fontSize:12,fontWeight:600,marginBottom:8,color:"var(--sage-dk)"}}>{scMsg}</p>}{scLoad&&<div className="f ac g8 ts tm"><div className="sp2 sp2-dk"/>Buscando...</div>}<p style={{fontSize:11,color:"var(--mid)",marginBottom:6}}>{status}</p>{results.length>0&&<div className="fl-list">{results.map((f,i)=><div key={i} className="fl-item" onClick={()=>onSelect(f)}><div style={{flex:1}}><div className="fl-name">{f.name}{f._off&&<span style={{fontSize:9,color:"#fff",background:"var(--terra)",padding:"2px 6px",borderRadius:10,marginLeft:8}}>OpenFoodFacts</span>}</div><div style={{fontSize:10,color:"var(--mid)"}}>por 100g</div></div><div className="fl-macros"><span><b>{f.kcal100}</b>kcal</span><span><b>{f.prot100}g</b>P</span><span><b>{f.carbs100}g</b>HC</span><span><b>{f.fat100}g</b>G</span></div></div>)}</div>}</div></>);
 
 /* ─── ING ROW (con autocompletado inline) ───────────────────────────────── */
 const blankIng=()=>({id:Date.now()+Math.random(),name:"",qty:"",unit:"g",kcal:"",prot:"",carbs:"",fat:"",_auto:false,_k100:null,_p100:null,_c100:null,_f100:null});
@@ -2794,25 +2779,13 @@ function IngRow({ing,idx,onChange,onRemove}){
 
   const handleQty = v => {
     set("qty", v);
-    if (ing._k100 != null && v) {
-      // Usar toGrams para calcular el factor correcto según unidad
-      const grams = toGrams(Number(v), ing.unit, ing.name);
-      onChange(idx, "__recalc", grams / 100);
-    }
-  };
-
-  const handleUnit = v => {
-    set("unit", v);
-    if (ing._k100 != null && ing.qty) {
-      const grams = toGrams(Number(ing.qty), v, ing.name);
-      onChange(idx, "__recalc", grams / 100);
-    }
+    if (ing._k100 != null) onChange(idx, "__recalc", {qty: Number(v)||0, unit: ing.unit});
   };
 
   const handleSelect = food => {
     setOpen(false);
     const qty = Number(ing.qty) || 100;
-    onChange(idx, "__fill", { food, qty });
+    onChange(idx, "__fill", { food, qty, unitForm: ing.unit });
     setFlash(true); setTimeout(() => setFlash(false), 900);
   };
 
@@ -2832,7 +2805,7 @@ function IngRow({ing,idx,onChange,onRemove}){
   const pickSugg = (food) => {
     setShowSugg(false); setSugg([]);
     const qty = Number(ing.qty) || 100;
-    onChange(idx, "__fill", { food, qty });
+    onChange(idx, "__fill", { food, qty, unitForm: ing.unit });
     setFlash(true); setTimeout(() => setFlash(false), 900);
   };
 
@@ -2899,32 +2872,29 @@ function IngRow({ing,idx,onChange,onRemove}){
               ✓ {ing._dbName}
             </div>
           )}
-          {ing._grams && ing.unit !== 'g' && ing.unit !== 'kg' && ing.unit !== 'ml' && (
-            <div style={{fontSize:9,color:"var(--mid)",marginTop:1,paddingLeft:2}}>
-              ≈ {ing._grams}g
-            </div>
-          )}
         </td>
-        <td style={{width:62}}>
+        <td style={{width:"auto",minWidth:70}}>
           <input className="ii" type="number" value={ing.qty} placeholder="100" onChange={e=>handleQty(e.target.value)}/>
         </td>
-        <td style={{width:82}}>
-          <select className="ii" value={ing.unit} onChange={e=>handleUnit(e.target.value)}>
+        <td style={{width:"auto",minWidth:85}}>
+          <select className="ii" value={ing.unit} onChange={e=>{
+            set("unit",e.target.value);
+            if(ing._k100!=null)onChange(idx,"__recalc",{qty:Number(ing.qty)||0,unit:e.target.value});
+          }}>
             <option value="g">g</option>
             <option value="ml">ml</option>
+            <option value="ud">ud</option>
+            <option value="cucharada">cuch.</option>
+            <option value="cucharadita">cuch.ta</option>
+            <option value="taza">taza</option>
             <option value="kg">kg</option>
             <option value="l">l</option>
-            <option value="cucharada">cda (15g)</option>
-            <option value="cucharadita">cdta (5g)</option>
-            <option value="taza">taza (240g)</option>
-            <option value="ud">ud (50g)</option>
-            <option value="pizca">pizca</option>
-            <option value="puñado">puñado</option>
           </select>
         </td>
         {["kcal","prot","carbs","fat"].map(k=>(
-          <td key={k} style={{width:58}}>
+          <td key={k} style={{width:"auto",minWidth:70}}>
             <input className={"ii"+(ing._auto?" auto":"")} type="number" value={ing[k]} placeholder="0"
+              style={{width:"100%"}}
               onChange={e=>{set(k,e.target.value);set("_auto",false);set("_k100",null);}}/>
           </td>
         ))}
@@ -2957,36 +2927,43 @@ function ImgUpload({value,onChange,label="Imagen del plato"}){
 
 /* ─── RECIPE FORM ─────────────────────────────────────────────────────────── */
 function RecipeForm({recipe,onSave,onClose,showToast}){
-  const[form,setForm]=useState(()=>recipe
-    ?{...recipe,ingredients:recipe.ingredients.map(i=>({...blankIng(),...i}))}
-    :{name:"",portions:1,categoria:"",origen:"",dificultad:"",instructions:"",image:"",ingredients:[blankIng()]}
-  );
+  const[form,setForm]=useState(()=>{
+    if(recipe) return {...recipe,ingredients:recipe.ingredients.map(i=>({...blankIng(),...i}))};
+    const draft = localStorage.getItem("recipe_draft_v2");
+    if(draft){ try { return JSON.parse(draft); } catch(e){} }
+    return {name:"",portions:1,categoria:"",origen:"",dificultad:"",instructions:"",image:"",ingredients:[blankIng()]}
+  });
   const[ingMode,setIngMode]=useState("search"); // "search" | "paste"
   const[pasteText,setPasteText]=useState("");
+
+  useEffect(() => {
+    if (!recipe) localStorage.setItem("recipe_draft_v2", JSON.stringify(form));
+  }, [form, recipe]);
 
   const sf=(k,v)=>setForm(f=>({...f,[k]:v}));
 
   const onChange=(idx,key,val)=>{setForm(f=>{
     const ings=[...f.ingredients];
     if(key==="__fill"){
-      const{food,qty}=val;
-      const _unit = ings[idx].unit || 'g';
-      const _grams = toGrams(qty, _unit, food.name);
-      const r = _grams / 100;
-      ings[idx]={...ings[idx],name:food.name,qty,
+      const{food,qty,unitForm}=val; const unit = unitForm || ings[idx].unit || "g";
+      const wt = { 'cucharada': 15, 'cucharadita': 5, 'taza': 240, 'kg': 1000, 'l': 1000, 'ml': 1, 'ud': 100, 'g': 1 }[unit] || 1;
+      const r=(qty*wt)/100;
+      ings[idx]={...ings[idx],name:food.name,qty,unit,
         kcal:Math.round(food.kcal100*r),
-        prot:Math.round(food.prot100*r*10)/10,
-        carbs:Math.round(food.carbs100*r*10)/10,
-        fat:Math.round(food.fat100*r*10)/10,
+        prot:Math.round((food.prot100*r)*10)/10,
+        carbs:Math.round((food.carbs100*r)*10)/10,
+        fat:Math.round((food.fat100*r)*10)/10,
         _auto:true,_k100:food.kcal100,_p100:food.prot100,_c100:food.carbs100,_f100:food.fat100,
         _dbName:food.name};
     } else if(key==="__recalc"){
-      const r=val; if(ings[idx]._k100==null)return f;
-      ings[idx]={...ings[idx],
+      const qt=val.qty; const un=val.unit; if(ings[idx]._k100==null)return f;
+      const wt = { 'cucharada': 15, 'cucharadita': 5, 'taza': 240, 'kg': 1000, 'l': 1000, 'ml': 1, 'ud': 100, 'g': 1 }[un] || 1;
+      const r=(qt*wt)/100;
+      ings[idx]={...ings[idx],qty:qt,unit:un,
         kcal:Math.round(ings[idx]._k100*r),
-        prot:Math.round(ings[idx]._p100*r*10)/10,
-        carbs:Math.round(ings[idx]._c100*r*10)/10,
-        fat:Math.round(ings[idx]._f100*r*10)/10};
+        prot:Math.round((ings[idx]._p100*r)*10)/10,
+        carbs:Math.round((ings[idx]._c100*r)*10)/10,
+        fat:Math.round((ings[idx]._f100*r)*10)/10};
     } else {
       ings[idx]={...ings[idx],[key]:val};
     }
@@ -3012,12 +2989,13 @@ function RecipeForm({recipe,onSave,onClose,showToast}){
 
   const totals=sumM(form.ingredients.map(i=>({kcal:+i.kcal||0,prot:+i.prot||0,carbs:+i.carbs||0,fat:+i.fat||0})));
   const por=perP(totals,+form.portions||1);
-  const save=()=>{if(!form.name.trim())return showToast("Añade un nombre","error");onSave({...form,id:form.id||Date.now(),portions:+form.portions||1});};
+  const save=()=>{if(!form.name.trim())return showToast("Añade un nombre","error");onSave({...form,id:form.id||Date.now(),portions:+form.portions||1});if(!recipe)localStorage.removeItem("recipe_draft_v2");};
+  const saveDraft=()=>{onSave({...form,id:form.id||Date.now(),name:form.name.trim()||"Receta Borrador",portions:+form.portions||1,categoria:form.categoria||"Dieta estándar"});if(!recipe)localStorage.removeItem("recipe_draft_v2");};
 
   return(
-    <div className="mb" onClick={e=>e.target===e.currentTarget&&onClose()}>
-    <div className="mo">
-      <div className="mo-hd"><h3>{recipe?"✏️ Editar receta":"✨ Nueva receta"}</h3><button className="mo-x" onClick={onClose}>✕</button></div>
+    <div className="mb" onClick={e=>e.stopPropagation()}>
+    <div className="mo" onClick={e=>e.stopPropagation()}>
+      <div className="mo-hd"><h3>{recipe?"✏️ Editar receta":"✨ Nueva receta"}</h3><button className="mo-x" title="Cerrar sin guardar" onClick={onClose}>✕</button></div>
 
       <div className="f2 mb20">
         <div>
@@ -3099,7 +3077,7 @@ function RecipeForm({recipe,onSave,onClose,showToast}){
 
       {/* ── Ingredients table (always visible) ── */}
       <div style={{overflowX:"auto",marginTop:ingMode==="paste"?0:8}}>
-        <table className="it" style={{minWidth:580}}>
+        <table className="it" style={{minWidth:680}}>
           <thead>
             <tr>
               <th>Ingrediente <span style={{fontWeight:400,color:"var(--sage-lt)",fontSize:9}}>↓ escribe para buscar</span></th>
@@ -3137,9 +3115,12 @@ function RecipeForm({recipe,onSave,onClose,showToast}){
         <label className="fl">Elaboración / Instrucciones</label>
         <textarea className="fta" style={{minHeight:100}} value={form.instructions} onChange={e=>sf("instructions",e.target.value)} placeholder="Describe los pasos de preparación..."/>
       </div>
-      <div className="f g8" style={{justifyContent:"flex-end"}}>
-        <button className="btn btn-g" onClick={onClose}>Cancelar</button>
-        <button className="btn btn-p" onClick={save}>💾 Guardar receta</button>
+      <div className="f g8" style={{justifyContent:"space-between", flexWrap: "wrap", marginTop: 16}}>
+        <button className="btn btn-i" onClick={()=>{saveDraft();showToast("Guardado como borrador");onClose();}}>📦 Guardar como Borrador</button>
+        <div className="f g8">
+          <button className="btn btn-g" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-p" onClick={save}>💾 Guardar receta final</button>
+        </div>
       </div>
     </div>
     </div>
