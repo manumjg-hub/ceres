@@ -1078,7 +1078,22 @@ const Styles = () => (
 
 /* ─── FOOD DB (80+ items) ─────────────────────────────────────────────────── */
 const FOOD_DB=[{n:"Pechuga de pollo (cruda)",k:110,p:23,c:0,f:1.2},{n:"Pechuga de pollo (plancha)",k:165,p:31,c:0,f:3.6},{n:"Muslo de pollo",k:177,p:18,c:0,f:11},{n:"Pavo pechuga",k:104,p:22,c:0,f:1.7},{n:"Carne picada vacuno 5%",k:137,p:21,c:0,f:5},{n:"Carne picada vacuno 20%",k:254,p:17,c:0,f:20},{n:"Lomo de cerdo",k:143,p:22,c:0,f:5.5},{n:"Jamon serrano",k:195,p:30,c:0.5,f:8},{n:"Jamon York",k:107,p:17,c:2,f:3.5},{n:"Salmon",k:208,p:20,c:0,f:13},{n:"Atun fresco",k:144,p:23,c:0,f:5},{n:"Atun lata natural",k:116,p:26,c:0,f:1},{n:"Merluza",k:82,p:18,c:0,f:1},{n:"Sardinas lata",k:208,p:25,c:0,f:11},{n:"Gambas",k:99,p:21,c:0,f:1.4},{n:"Bacalao",k:82,p:18,c:0,f:0.7},{n:"Huevo entero",k:155,p:13,c:1.1,f:11},{n:"Clara de huevo",k:52,p:11,c:0.7,f:0.2},{n:"Leche entera",k:61,p:3.2,c:4.8,f:3.3},{n:"Leche semidesnatada",k:46,p:3.3,c:5,f:1.5},{n:"Yogur griego natural",k:97,p:5.7,c:3.8,f:6.7},{n:"Queso fresco cottage",k:98,p:11,c:3.4,f:4.3},{n:"Queso mozzarella",k:280,p:22,c:2.2,f:20},{n:"Avena copos",k:379,p:13,c:67,f:6.9},{n:"Arroz blanco cocido",k:130,p:2.7,c:28,f:0.3},{n:"Arroz integral cocido",k:111,p:2.6,c:23,f:0.9},{n:"Pasta cocida",k:131,p:5,c:25,f:1.1},{n:"Pasta integral cocida",k:124,p:5.3,c:23,f:1.1},{n:"Pan blanco",k:265,p:9,c:49,f:3.2},{n:"Pan integral",k:247,p:13,c:41,f:3.4},{n:"Quinoa cocida",k:120,p:4.4,c:21,f:1.9},{n:"Patata cocida",k:86,p:1.7,c:20,f:0.1},{n:"Boniato horneado",k:90,p:2,c:21,f:0.1},{n:"Brocoli",k:34,p:2.8,c:7,f:0.4},{n:"Espinacas",k:23,p:2.9,c:3.6,f:0.4},{n:"Tomate",k:18,p:0.9,c:3.9,f:0.2},{n:"Lechuga",k:15,p:1.4,c:2.9,f:0.2},{n:"Pepino",k:16,p:0.7,c:3.6,f:0.1},{n:"Pimiento rojo",k:31,p:1,c:7.6,f:0.3},{n:"Pimiento verde",k:20,p:0.9,c:4.6,f:0.2},{n:"Zanahoria",k:41,p:0.9,c:9.6,f:0.2},{n:"Cebolla",k:40,p:1.1,c:9.3,f:0.1},{n:"Calabacin",k:17,p:1.2,c:3.1,f:0.3},{n:"Berenjena",k:25,p:1,c:5.9,f:0.2},{n:"Champinones",k:22,p:3.1,c:3.3,f:0.3},{n:"Judias verdes",k:31,p:1.8,c:7,f:0.1},{n:"Coliflor",k:25,p:1.9,c:5,f:0.3},{n:"Ajo",k:149,p:6.4,c:33,f:0.5},{n:"Platano",k:89,p:1.1,c:23,f:0.3},{n:"Manzana",k:52,p:0.3,c:14,f:0.2},{n:"Naranja",k:47,p:0.9,c:12,f:0.1},{n:"Fresa",k:32,p:0.7,c:7.7,f:0.3},{n:"Arandanos",k:57,p:0.7,c:14,f:0.3},{n:"Garbanzos cocidos",k:164,p:8.9,c:27,f:2.6},{n:"Lentejas cocidas",k:116,p:9,c:20,f:0.4},{n:"Edamame",k:121,p:11,c:8.9,f:5.2},{n:"Aguacate",k:160,p:2,c:9,f:15},{n:"Aceite oliva virgen",k:884,p:0,c:0,f:100},{n:"Almendras",k:579,p:21,c:22,f:50},{n:"Nueces",k:654,p:15,c:14,f:65},{n:"Proteina whey",k:400,p:80,c:10,f:5},{n:"Tofu",k:76,p:8,c:1.9,f:4.8},{n:"Tomate triturado",k:32,p:1.6,c:5.8,f:0.4},{n:"Tomate cherry",k:18,p:0.9,c:3.9,f:0.2},{n:"Aceite de oliva",k:884,p:0,c:0,f:100}];
-const searchLocal=q=>{if(!q||q.length<2)return[];const w=q.toLowerCase().split(/\s+/).filter(Boolean);return FOOD_DB.map(f=>{const nm=f.n.toLowerCase();let s=0;w.forEach(x=>{if(nm.startsWith(x))s+=3;else if(nm.includes(' '+x))s+=2;else if(nm.includes(x))s+=1;});return{food:f,score:s};}).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,8).map(x=>({name:x.food.n,kcal100:x.food.k,prot100:x.food.p,carbs100:x.food.c,fat100:x.food.f}));};
+const searchLocal=q=>{
+  if(!q||q.length<2)return[];
+  const qClean = q.replace(/\b(a|la|el|los|las|de|del|en|con|sin|y|o|un|una|unos|unas)\b/gi," ").replace(/\s+/g," ").trim();
+  if(!qClean||qClean.length<2)return[];
+  const w=qClean.toLowerCase().split(/\s+/).filter(Boolean);
+  return FOOD_DB.map(f=>{
+    const nm=f.n.toLowerCase();
+    let s=0;
+    w.forEach(x=>{
+      if(nm.startsWith(x))s+=3;
+      else if(nm.includes(' '+x))s+=2;
+      else if(nm.includes(x))s+=1;
+    });
+    return{food:f,score:s};
+  }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,8).map(x=>({name:x.food.n,kcal100:x.food.k,prot100:x.food.p,carbs100:x.food.c,fat100:x.food.f}));
+};
 
 /* ─── CATEGORIES ──────────────────────────────────────────────────────────── */
 const DIETS=["Omnivora","Vegetariana","Vegana","Keto","Mediterranea","Sin gluten","Alta proteina"];
@@ -2811,21 +2826,30 @@ const doSearch=async query=>{
   try{
     const base="https://es.openfoodfacts.org/cgi/search.pl";
     const common="search_simple=1&action=process&json=1&page_size=12";
+    let offCount = 0;
 
     // Estrategia 1: búsqueda directa con el texto completo
     const r1=await fetch(`${base}?search_terms=${encodeURIComponent(query)}&${common}`).catch(()=>null);
-    if(r1?.ok){const d=await r1.json().catch(()=>null);addResults(d?.products);}
+    if(r1?.ok){
+      const d=await r1.json().catch(()=>null);
+      const prev = best.length;
+      addResults(d?.products);
+      offCount += (best.length - prev);
+    }
 
-    // Estrategia 2: si pocos resultados, buscar sin stopwords (ej: "garbanzos jardinera")
-    if(best.length<4){
+    // Estrategia 2: si OFF devolvió pocos resultados, buscar sin stopwords
+    if(offCount < 3){
       const q2=cleanQuery(query);
       if(q2!==query&&q2.length>=2){
         const r2=await fetch(`${base}?search_terms=${encodeURIComponent(q2)}&${common}`).catch(()=>null);
-        if(r2?.ok){const d=await r2.json().catch(()=>null);addResults(d?.products);}
+        if(r2?.ok){
+          const d=await r2.json().catch(()=>null);
+          addResults(d?.products);
+        }
       }
     }
 
-    // Estrategia 3: si aún pocos resultados, búsqueda avanzada sin search_simple
+    // Estrategia 3: si aún pocos resultados locales y de OFF combinados, búsqueda avanzada
     if(best.length<3){
       const r3=await fetch(`${base}?search_terms=${encodeURIComponent(query)}&action=process&json=1&page_size=10`).catch(()=>null);
       if(r3?.ok){const d=await r3.json().catch(()=>null);addResults(d?.products);}
