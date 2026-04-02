@@ -2738,29 +2738,95 @@ function BarcodeScanner({onDetect,onClose}){const vidRef=useRef(null);const done
 
 /* ─── FOOD SEARCH ─────────────────────────────────────────────────────────── */
 function FoodSearch({onSelect,onClose}){const[q,setQ]=useState("");const[results,setRes]=useState([]);const[scanOn,setScan]=useState(false);const[status,setSt]=useState("Escribe el nombre de un alimento");const[scMsg,setScMsg]=useState("");const[scLoad,setScLd]=useState(false);const timer=useRef(null);
+const parseOFFProduct=(p)=>{
+  if(!p)return null;
+  const n=p.nutriments||{};
+  const k=n["energy-kcal_100g"]??(n["energy-kj_100g"]?Math.round(n["energy-kj_100g"]/4.184):0)??(n.energy_100g?Math.round(n.energy_100g/4.184):0);
+  if(!k||k<=0)return null;
+  const name=(p.product_name_es||p.product_name||p.product_name_en||p.brands||"Producto").replace(/^[\s(]+|[\s)]+$/g,"").trim();
+  if(!name||name.length<2)return null;
+  return{
+    name,
+    kcal100:Math.round(k),
+    prot100:Math.round((n.proteins_100g??n["proteins-100g"]??0)*10)/10,
+    carbs100:Math.round((n.carbohydrates_100g??n["carbohydrates-100g"]??0)*10)/10,
+    fat100:Math.round((n.fat_100g??n["fat-100g"]??0)*10)/10,
+    _off:true
+  };
+};
+
+// Quita stopwords españolas para mejorar la búsqueda
+const cleanQuery=(q)=>q.replace(/\b(a|la|el|los|las|de|del|en|con|sin|y|o|un|una|unos|unas)\b/gi," ").replace(/\s+/g," ").trim();
+
 const doSearch=async query=>{
   if(!query||query.length<2){setRes([]);setSt("Escribe al menos 2 letras");return;}
   setScLd(true);
   const foundLocal=searchLocal(query);
   let best=[...foundLocal];
   setRes(best);
+  const seen=new Set(best.map(x=>x.name.toLowerCase()));
+
+  const addResults=(products)=>{
+    (products||[]).forEach(p=>{
+      const f=parseOFFProduct(p);
+      if(f&&!seen.has(f.name.toLowerCase())){best.push(f);seen.add(f.name.toLowerCase());}
+    });
+  };
+
   try{
-    const r=await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=15`);
-    const d=await r.json();
-    if(d.products){
-      const off=d.products.map(p=>{
-        const n=p.nutriments||{}; const k=n["energy-kcal_100g"]||(n.energy_100g?n.energy_100g/4.184:0);
-        if(k<=0)return null;
-        return{name:(p.product_name_es||p.product_name||p.brands||"Producto").trim(),kcal100:Math.round(k),prot100:Math.round((n.proteins_100g||0)*10)/10,carbs100:Math.round((n.carbohydrates_100g||0)*10)/10,fat100:Math.round((n.fat_100g||0)*10)/10,_off:true};
-      }).filter(Boolean);
-      const seen=new Set(best.map(x=>x.name.toLowerCase()));
-      off.forEach(i=>{if(!seen.has(i.name.toLowerCase())){best.push(i);seen.add(i.name.toLowerCase());}});
+    const base="https://world.openfoodfacts.org/cgi/search.pl";
+    const common="search_simple=1&action=process&json=1&page_size=12";
+
+    // Estrategia 1: búsqueda directa con el texto completo
+    const r1=await fetch(`${base}?search_terms=${encodeURIComponent(query)}&${common}`).catch(()=>null);
+    if(r1?.ok){const d=await r1.json().catch(()=>null);addResults(d?.products);}
+
+    // Estrategia 2: si pocos resultados, buscar sin stopwords (ej: "garbanzos jardinera")
+    if(best.length<4){
+      const q2=cleanQuery(query);
+      if(q2!==query&&q2.length>=2){
+        const r2=await fetch(`${base}?search_terms=${encodeURIComponent(q2)}&${common}`).catch(()=>null);
+        if(r2?.ok){const d=await r2.json().catch(()=>null);addResults(d?.products);}
+      }
+    }
+
+    // Estrategia 3: si aún pocos resultados, búsqueda avanzada sin search_simple
+    if(best.length<3){
+      const r3=await fetch(`${base}?search_terms=${encodeURIComponent(query)}&action=process&json=1&page_size=10`).catch(()=>null);
+      if(r3?.ok){const d=await r3.json().catch(()=>null);addResults(d?.products);}
     }
   }catch(e){}
-  setRes(best);setSt(best.length?best.length+" resultado(s):":"Sin resultados.");setScLd(false);
+
+  setRes([...best]);
+  setSt(best.length?best.length+" resultado(s):":"Sin resultados.");
+  setScLd(false);
 };
   const handleInput=v=>{setQ(v);clearTimeout(timer.current);timer.current=setTimeout(()=>doSearch(v),400);};
-  const handleBarcode=async code=>{if(!code)return;setScan(false);setScLd(true);setScMsg("Buscando "+code+"...");try{const r=await fetch("https://world.openfoodfacts.org/api/v2/product/"+code+".json?fields=product_name,nutriments");const d=await r.json();if(d.status===1&&d.product){const n=d.product.nutriments||{};const kcal=n["energy-kcal_100g"]||(n.energy_100g?n.energy_100g/4.184:0);if(kcal>0){const food={name:(d.product.product_name||"Producto").trim(),kcal100:Math.round(kcal),prot100:Math.round((n.proteins_100g||0)*10)/10,carbs100:Math.round((n.carbohydrates_100g||0)*10)/10,fat100:Math.round((n.fat_100g||0)*10)/10};setRes([food]);setQ(food.name);setScMsg("Producto encontrado");setSt("Clic para seleccionar:");}else setScMsg("Sin datos nutricionales.");}else setScMsg("Codigo no encontrado.");}catch{setScMsg("Sin conexion. Busca por nombre.");}setScLd(false);};
+  const handleBarcode=async code=>{
+  if(!code)return;
+  setScan(false);setScLd(true);setScMsg("Buscando "+code+"...");
+  try{
+    const fields="product_name,product_name_es,product_name_en,nutriments,brands";
+    const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${fields}`);
+    const d=await r.json();
+    if(d.status===1&&d.product){
+      const food=parseOFFProduct(d.product);
+      if(food){
+        setRes([{...food,_off:true}]);
+        setQ(food.name);
+        setScMsg("✓ Producto encontrado");
+        setSt("Clic para seleccionar:");
+      }else{
+        setScMsg("Sin datos nutricionales en OpenFoodFacts para este código.");
+      }
+    }else{
+      setScMsg("Código no encontrado. Prueba a escribir el nombre.");
+    }
+  }catch{
+    setScMsg("Sin conexión. Busca por nombre.");
+  }
+  setScLd(false);
+};
   const [bcode, setBcode] = useState("");
   return(<>{scanOn&&<BarcodeScanner onDetect={handleBarcode} onClose={()=>setScan(false)}/>}<div className="sp" onClick={e=>e.stopPropagation()}><div className="f g8 ac mb16" style={{flexWrap:"wrap"}}><input className="fi" autoFocus style={{flex:1,minWidth:140,padding:"8px 12px",fontSize:13}} placeholder="Buscar alimento (ej: Garbanzos)..." value={q} onChange={e=>handleInput(e.target.value)}/><div style={{display:"flex",gap:4}}><input className="fi" style={{width: 130, padding:"8px 12px", fontSize:13}} placeholder="Cód. Barras" value={bcode} onChange={e=>setBcode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")handleBarcode(bcode);}}/><button className="btn btn-o btn-sm" onClick={()=>handleBarcode(bcode)}>🔍 Cód.</button></div><button className="btn btn-i btn-sm" onClick={()=>setScan(true)}>📷 Escanear</button><a href="https://es.openfoodfacts.org" target="_blank" rel="noreferrer" className="btn btn-i btn-sm" style={{textDecoration:"none",display:"inline-flex",alignItems:"center"}}>🌐 Ir a web OpenFood</a><button className="btn btn-g btn-sm" onClick={onClose}>✕ Cerrar</button></div>{scMsg&&<p style={{fontSize:12,fontWeight:600,marginBottom:8,color:"var(--sage-dk)"}}>{scMsg}</p>}{scLoad&&<div className="f ac g8 ts tm"><div className="sp2 sp2-dk"/>Buscando...</div>}<p style={{fontSize:11,color:"var(--mid)",marginBottom:6}}>{status}</p>{results.length>0&&<div className="fl-list">{results.map((f,i)=><div key={i} className="fl-item" onClick={()=>onSelect(f)}><div style={{flex:1}}><div className="fl-name">{f.name}{f._off&&<span style={{fontSize:9,color:"#fff",background:"var(--terra)",padding:"2px 6px",borderRadius:10,marginLeft:8}}>OpenFoodFacts</span>}</div><div style={{fontSize:10,color:"var(--mid)"}}>por 100g</div></div><div className="fl-macros"><span><b>{f.kcal100}</b>kcal</span><span><b>{f.prot100}g</b>P</span><span><b>{f.carbs100}g</b>HC</span><span><b>{f.fat100}g</b>G</span></div></div>)}</div>}</div></>);}
 
@@ -3634,22 +3700,49 @@ function AppInner(){
   const { user, profile } = useAuth();
   const [accountOpen, setAccountOpen] = useState(false);
   const [view,setView]=useState("dashboard");
-  const[recipes,setRecipes]=useState(()=>{try{const s=localStorage.getItem("np8_r");return s?JSON.parse(s):SEED;}catch{return SEED;}});
-  const[week,setWeek]=useState(()=>{try{const s=localStorage.getItem("np8_w");return s?JSON.parse(s):mkWeek();}catch{return mkWeek();}});
-  const[appProfile,setAppProfile]=useState(()=>{try{const s=localStorage.getItem("np8_p");return s?JSON.parse(s):DEFAULT_PROFILE;}catch{return DEFAULT_PROFILE;}});
+  const[recipes,setRecipes]=useState(SEED);
+  const[week,setWeek]=useState(mkWeek);
+  const[appProfile,setAppProfile]=useState(DEFAULT_PROFILE);
   const[toast,setToast]=useState(null);
-  const[patients,setPatients]=useState(()=>{try{const s=localStorage.getItem("np8_pts");return s?JSON.parse(s):[];}catch{return [];}});
-  const[weekTemplates,setWeekTemplates]=useState(()=>{try{const s=localStorage.getItem("np8_tpl");return s?JSON.parse(s):[];}catch{return [];}});
-  const[interviewQs,setInterviewQs]=useState(()=>{try{const s=localStorage.getItem("np8_iqs");return s?JSON.parse(s):DEFAULT_QUESTIONS;}catch{return DEFAULT_QUESTIONS;}});
-  const[subscriptions,setSubscriptions]=useState(()=>{try{const s=localStorage.getItem("np8_subs");return s?JSON.parse(s):DEFAULT_SUBS;}catch{return DEFAULT_SUBS;}});
+  const[patients,setPatients]=useState([]);
+  const[weekTemplates,setWeekTemplates]=useState([]);
+  const[interviewQs,setInterviewQs]=useState(DEFAULT_QUESTIONS);
+  const[subscriptions,setSubscriptions]=useState(DEFAULT_SUBS);
+  const[dbLoaded,setDbLoaded]=useState(false);
 
-  useEffect(()=>{try{localStorage.setItem("np8_r",JSON.stringify(recipes));}catch{}},[recipes]);
-  useEffect(()=>{try{localStorage.setItem("np8_w",JSON.stringify(week));}catch{}},[week]);
-  useEffect(()=>{try{localStorage.setItem("np8_p",JSON.stringify(appProfile));}catch{}},[appProfile]);
-  useEffect(()=>{try{localStorage.setItem("np8_pts",JSON.stringify(patients));}catch{}},[patients]);
-  useEffect(()=>{try{localStorage.setItem("np8_tpl",JSON.stringify(weekTemplates));}catch{}},[weekTemplates]);
-  useEffect(()=>{try{localStorage.setItem("np8_iqs",JSON.stringify(interviewQs));}catch{}},[interviewQs]);
-  useEffect(()=>{try{localStorage.setItem("np8_subs",JSON.stringify(subscriptions));}catch{}},[subscriptions]);
+  // Cargar datos desde Supabase al iniciar sesión
+  useEffect(()=>{
+    if(!user?.id)return;
+    supabase.from("nutriplanner_data").select("key,value").eq("user_id",user.id)
+      .then(({data,error})=>{
+        if(error){console.error("Error cargando datos:",error.message);setDbLoaded(true);return;}
+        if(!data||data.length===0){setDbLoaded(true);return;}
+        const map=Object.fromEntries(data.map(r=>[r.key,r.value]));
+        if(map.recipes)      setRecipes(map.recipes);
+        if(map.week)         setWeek(map.week);
+        if(map.appProfile)   setAppProfile(map.appProfile);
+        if(map.patients)     setPatients(map.patients);
+        if(map.weekTemplates)setWeekTemplates(map.weekTemplates);
+        if(map.interviewQs)  setInterviewQs(map.interviewQs);
+        if(map.subscriptions)setSubscriptions(map.subscriptions);
+        setDbLoaded(true);
+      });
+  },[user?.id]);
+
+  const saveToDb=(key,value)=>{
+    if(!user?.id||!dbLoaded)return;
+    supabase.from("nutriplanner_data")
+      .upsert({user_id:user.id,key,value,updated_at:new Date().toISOString()},{onConflict:"user_id,key"})
+      .then(({error})=>{if(error)console.error("Error guardando",key,":",error.message);});
+  };
+
+  useEffect(()=>{if(dbLoaded)saveToDb("recipes",recipes);},[recipes]);
+  useEffect(()=>{if(dbLoaded)saveToDb("week",week);},[week]);
+  useEffect(()=>{if(dbLoaded)saveToDb("appProfile",appProfile);},[appProfile]);
+  useEffect(()=>{if(dbLoaded)saveToDb("patients",patients);},[patients]);
+  useEffect(()=>{if(dbLoaded)saveToDb("weekTemplates",weekTemplates);},[weekTemplates]);
+  useEffect(()=>{if(dbLoaded)saveToDb("interviewQs",interviewQs);},[interviewQs]);
+  useEffect(()=>{if(dbLoaded)saveToDb("subscriptions",subscriptions);},[subscriptions]);
 
   const showToast=useCallback((msg,type="success")=>setToast({msg,type,k:Date.now()}),[]);
   const addR=r=>setRecipes(rs=>[...rs,r]);
