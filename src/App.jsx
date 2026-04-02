@@ -2751,8 +2751,9 @@ function Toast({msg,type,onHide}){useEffect(()=>{const t=setTimeout(onHide,3400)
 /* ─── BARCODE SCANNER ─────────────────────────────────────────────────────── */
 function BarcodeScanner({onDetect,onClose}){const vidRef=useRef(null);const doneRef=useRef(false);const[msg,setMsg]=useState("Iniciando camara...");const[err,setErr]=useState(null);useEffect(()=>{let stream=null,raf=null,det=null;const tick=async()=>{if(doneRef.current||!vidRef.current)return;try{const found=await det.detect(vidRef.current);if(found.length&&!doneRef.current){doneRef.current=true;if(stream)stream.getTracks().forEach(t=>t.stop());setTimeout(()=>onDetect(found[0].rawValue),350);return;}}catch{}raf=requestAnimationFrame(tick);};(async()=>{if(!("BarcodeDetector"in window)){setErr("BarcodeDetector no disponible.\nUsa Chrome 83+ o Edge 83+.");return;}try{const fmts=await BarcodeDetector.getSupportedFormats();const want=["ean_13","ean_8","upc_a","upc_e","code_128"].filter(f=>fmts.includes(f));det=new BarcodeDetector({formats:want.length?want:["ean_13"]});stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});vidRef.current.srcObject=stream;await vidRef.current.play();setMsg("Apunta al codigo de barras");raf=requestAnimationFrame(tick);}catch(e){setErr(e.name==="NotAllowedError"?"Permiso de camara denegado.":"Error: "+e.message);}})();return()=>{if(stream)stream.getTracks().forEach(t=>t.stop());if(raf)cancelAnimationFrame(raf);};},[]);return(<div className="sc-bg" onClick={e=>e.target===e.currentTarget&&onClose()}><div className="sc-box"><button className="sc-x" onClick={onClose}>✕</button><video ref={vidRef} className="sc-vid" playsInline muted/>{!err&&<div className="sc-aim"><div className="sc-frame"><div className="sc-line"/></div></div>}</div><div className="sc-cap">{err?<span style={{whiteSpace:"pre-line",color:"#ff9999",fontSize:12}}>{err}</span>:<span>{msg}</span>}</div><button className="btn btn-g" style={{color:"rgba(255,255,255,.65)",marginTop:4}} onClick={onClose}>Cancelar</button></div>);}
 
-/* ─── FOOD SEARCH ─────────────────────────────────────────────────────────── */
-function FoodSearch({onSelect,onClose}){const[q,setQ]=useState("");const[results,setRes]=useState([]);const[scanOn,setScan]=useState(false);const[status,setSt]=useState("Escribe el nombre de un alimento");const[scMsg,setScMsg]=useState("");const[scLoad,setScLd]=useState(false);const timer=useRef(null);
+// --- GLOBAL ASYNC SEARCH ---
+const cleanQuery=(q)=>q.replace(/\b(a|la|el|los|las|de|del|en|con|sin|y|o|un|una|unos|unas)\b/gi," ").replace(/\s+/g," ").trim();
+
 const parseOFFProduct=(p)=>{
   if(!p)return null;
   const n=p.nutriments||{};
@@ -2761,8 +2762,7 @@ const parseOFFProduct=(p)=>{
   const name=(p.product_name_es||p.product_name||p.product_name_en||p.brands||"Producto").replace(/^[\s(]+|[\s)]+$/g,"").trim();
   if(!name||name.length<2)return null;
   return{
-    name,
-    kcal100:Math.round(k),
+    name,kcal100:Math.round(k),
     prot100:Math.round((n.proteins_100g??n["proteins-100g"]??0)*10)/10,
     carbs100:Math.round((n.carbohydrates_100g??n["carbohydrates-100g"]??0)*10)/10,
     fat100:Math.round((n.fat_100g??n["fat-100g"]??0)*10)/10,
@@ -2770,50 +2770,25 @@ const parseOFFProduct=(p)=>{
   };
 };
 
-// Quita stopwords españolas para mejorar la búsqueda
-const cleanQuery=(q)=>q.replace(/\b(a|la|el|los|las|de|del|en|con|sin|y|o|un|una|unos|unas)\b/gi," ").replace(/\s+/g," ").trim();
-
-  const handleBarcode=async code=>{
-  if(!code)return;
-  setScan(false);setScLd(true);setScMsg("Buscando "+code+"...");
-  try{
-    const fields="product_name,product_name_es,product_name_en,nutriments,brands";
-    const r=await fetch(`https://es.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${fields}`);
-    const d=await r.json();
-    if(d.status===1&&d.product){
-      const food=parseOFFProduct(d.product);
-      if(food){
-        setRes([{...food,_off:true}]);
-        setQ(food.name);
-        setScMsg("✓ Producto encontrado");
-        setSt("Clic para seleccionar:");
-      }else{
-        setScMsg("Sin datos nutricionales en OpenFoodFacts para este código.");
-      }
-    }else{
-      setScMsg("Código no encontrado. Prueba a escribir el nombre.");
-    }
-  }catch{
-    setScMsg("Sin conexión. Busca por nombre.");
-  }
-  setScLd(false);
-};
-
-const doSearch=async query=>{
+const searchFoodDB = async (query) => {
   const qClean = (query||"").trim();
-  if(!qClean||qClean.length<2){setRes([]);setSt("Escribe al menos 2 letras");return;}
-  
-  // Si parece un código de barras (solo números, entre 7 y 15 dígitos), pasarlo directamente
+  if(!qClean||qClean.length<2) return [];
+
   if(/^\d{7,15}$/.test(qClean)){
-    handleBarcode(qClean);
-    return;
+    const fields="product_name,product_name_es,product_name_en,nutriments,brands";
+    const r=await fetch(`https://es.openfoodfacts.org/api/v2/product/${encodeURIComponent(qClean)}.json?fields=${fields}`).catch(()=>null);
+    if(r?.ok){
+      const d=await r.json().catch(()=>null);
+      if(d?.status===1&&d?.product){
+        const f=parseOFFProduct(d.product);
+        if(f) return [{...f,_off:true}];
+      }
+    }
+    return [];
   }
 
-  setScMsg(""); // limpiar mensaje de código si lo había
-  setScLd(true);
   const foundLocal=searchLocal(query);
   let best=[...foundLocal];
-  setRes(best);
   const seen=new Set(best.map(x=>x.name.toLowerCase()));
 
   const addResults=(products)=>{
@@ -2828,7 +2803,6 @@ const doSearch=async query=>{
     const common="search_simple=1&action=process&json=1&page_size=12";
     let offCount = 0;
 
-    // Estrategia 1: búsqueda directa con el texto completo
     const r1=await fetch(`${base}?search_terms=${encodeURIComponent(query)}&${common}`).catch(()=>null);
     if(r1?.ok){
       const d=await r1.json().catch(()=>null);
@@ -2837,27 +2811,62 @@ const doSearch=async query=>{
       offCount += (best.length - prev);
     }
 
-    // Estrategia 2: si OFF devolvió pocos resultados, buscar sin stopwords
     if(offCount < 3){
       const q2=cleanQuery(query);
       if(q2!==query&&q2.length>=2){
         const r2=await fetch(`${base}?search_terms=${encodeURIComponent(q2)}&${common}`).catch(()=>null);
-        if(r2?.ok){
-          const d=await r2.json().catch(()=>null);
-          addResults(d?.products);
-        }
+        if(r2?.ok){const d=await r2.json().catch(()=>null);addResults(d?.products);}
       }
     }
 
-    // Estrategia 3: si aún pocos resultados locales y de OFF combinados, búsqueda avanzada
     if(best.length<3){
       const r3=await fetch(`${base}?search_terms=${encodeURIComponent(query)}&action=process&json=1&page_size=10`).catch(()=>null);
       if(r3?.ok){const d=await r3.json().catch(()=>null);addResults(d?.products);}
     }
   }catch(e){}
 
-  setRes([...best]);
-  setSt(best.length?best.length+" resultado(s):":"Sin resultados.");
+  return best;
+};
+
+/* ─── FOOD SEARCH ─────────────────────────────────────────────────────────── */
+function FoodSearch({onSelect,onClose}){
+  const[q,setQ]=useState("");
+  const[results,setRes]=useState([]);
+  const[scanOn,setScan]=useState(false);
+  const[status,setSt]=useState("Escribe el nombre de un alimento");
+  const[scMsg,setScMsg]=useState("");
+  const[scLoad,setScLd]=useState(false);
+  const timer=useRef(null);
+
+  const handleBarcode=async code=>{
+    if(!code)return;
+    setScan(false);setScLd(true);setScMsg("Buscando "+code+"...");
+    const res = await searchFoodDB(code);
+    if(res.length){
+      setRes(res);
+      setQ(res[0].name);
+      setScMsg("✓ Producto encontrado");
+      setSt("Clic para seleccionar:");
+    }else{
+      setScMsg("Código no encontrado o sin datos.");
+    }
+    setScLd(false);
+  };
+
+  const doSearch=async query=>{
+    const qClean = (query||"").trim();
+    if(!qClean||qClean.length<2){setRes([]);setSt("Escribe al menos 2 letras");return;}
+    
+    if(/^\d{7,15}$/.test(qClean)){
+      handleBarcode(qClean);
+      return;
+    }
+
+    setScMsg(""); // limpiar mensaje de código si lo había
+    setScLd(true);
+    const best = await searchFoodDB(query);
+    setRes(best);
+    setSt(best.length?best.length+" resultado(s):":"Sin resultados.");
   setScLd(false);
 };
 
