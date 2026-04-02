@@ -2758,8 +2758,43 @@ const parseOFFProduct=(p)=>{
 // Quita stopwords españolas para mejorar la búsqueda
 const cleanQuery=(q)=>q.replace(/\b(a|la|el|los|las|de|del|en|con|sin|y|o|un|una|unos|unas)\b/gi," ").replace(/\s+/g," ").trim();
 
+  const handleBarcode=async code=>{
+  if(!code)return;
+  setScan(false);setScLd(true);setScMsg("Buscando "+code+"...");
+  try{
+    const fields="product_name,product_name_es,product_name_en,nutriments,brands";
+    const r=await fetch(`https://es.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${fields}`);
+    const d=await r.json();
+    if(d.status===1&&d.product){
+      const food=parseOFFProduct(d.product);
+      if(food){
+        setRes([{...food,_off:true}]);
+        setQ(food.name);
+        setScMsg("✓ Producto encontrado");
+        setSt("Clic para seleccionar:");
+      }else{
+        setScMsg("Sin datos nutricionales en OpenFoodFacts para este código.");
+      }
+    }else{
+      setScMsg("Código no encontrado. Prueba a escribir el nombre.");
+    }
+  }catch{
+    setScMsg("Sin conexión. Busca por nombre.");
+  }
+  setScLd(false);
+};
+
 const doSearch=async query=>{
-  if(!query||query.length<2){setRes([]);setSt("Escribe al menos 2 letras");return;}
+  const qClean = (query||"").trim();
+  if(!qClean||qClean.length<2){setRes([]);setSt("Escribe al menos 2 letras");return;}
+  
+  // Si parece un código de barras (solo números, entre 7 y 15 dígitos), pasarlo directamente
+  if(/^\d{7,15}$/.test(qClean)){
+    handleBarcode(qClean);
+    return;
+  }
+
+  setScMsg(""); // limpiar mensaje de código si lo había
   setScLd(true);
   const foundLocal=searchLocal(query);
   let best=[...foundLocal];
@@ -2774,7 +2809,7 @@ const doSearch=async query=>{
   };
 
   try{
-    const base="https://world.openfoodfacts.org/cgi/search.pl";
+    const base="https://es.openfoodfacts.org/cgi/search.pl";
     const common="search_simple=1&action=process&json=1&page_size=12";
 
     // Estrategia 1: búsqueda directa con el texto completo
@@ -2801,32 +2836,8 @@ const doSearch=async query=>{
   setSt(best.length?best.length+" resultado(s):":"Sin resultados.");
   setScLd(false);
 };
+
   const handleInput=v=>{setQ(v);clearTimeout(timer.current);timer.current=setTimeout(()=>doSearch(v),400);};
-  const handleBarcode=async code=>{
-  if(!code)return;
-  setScan(false);setScLd(true);setScMsg("Buscando "+code+"...");
-  try{
-    const fields="product_name,product_name_es,product_name_en,nutriments,brands";
-    const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${fields}`);
-    const d=await r.json();
-    if(d.status===1&&d.product){
-      const food=parseOFFProduct(d.product);
-      if(food){
-        setRes([{...food,_off:true}]);
-        setQ(food.name);
-        setScMsg("✓ Producto encontrado");
-        setSt("Clic para seleccionar:");
-      }else{
-        setScMsg("Sin datos nutricionales en OpenFoodFacts para este código.");
-      }
-    }else{
-      setScMsg("Código no encontrado. Prueba a escribir el nombre.");
-    }
-  }catch{
-    setScMsg("Sin conexión. Busca por nombre.");
-  }
-  setScLd(false);
-};
   const [bcode, setBcode] = useState("");
   return(<>{scanOn&&<BarcodeScanner onDetect={handleBarcode} onClose={()=>setScan(false)}/>}<div className="sp" onClick={e=>e.stopPropagation()}><div className="f g8 ac mb16" style={{flexWrap:"wrap"}}><input className="fi" autoFocus style={{flex:1,minWidth:140,padding:"8px 12px",fontSize:13}} placeholder="Buscar alimento (ej: Garbanzos)..." value={q} onChange={e=>handleInput(e.target.value)}/><div style={{display:"flex",gap:4}}><input className="fi" style={{width: 130, padding:"8px 12px", fontSize:13}} placeholder="Cód. Barras" value={bcode} onChange={e=>setBcode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")handleBarcode(bcode);}}/><button className="btn btn-o btn-sm" onClick={()=>handleBarcode(bcode)}>🔍 Cód.</button></div><button className="btn btn-i btn-sm" onClick={()=>setScan(true)}>📷 Escanear</button><a href="https://es.openfoodfacts.org" target="_blank" rel="noreferrer" className="btn btn-i btn-sm" style={{textDecoration:"none",display:"inline-flex",alignItems:"center"}}>🌐 Ir a web OpenFood</a><button className="btn btn-g btn-sm" onClick={onClose}>✕ Cerrar</button></div>{scMsg&&<p style={{fontSize:12,fontWeight:600,marginBottom:8,color:"var(--sage-dk)"}}>{scMsg}</p>}{scLoad&&<div className="f ac g8 ts tm"><div className="sp2 sp2-dk"/>Buscando...</div>}<p style={{fontSize:11,color:"var(--mid)",marginBottom:6}}>{status}</p>{results.length>0&&<div className="fl-list">{results.map((f,i)=><div key={i} className="fl-item" onClick={()=>onSelect(f)}><div style={{flex:1}}><div className="fl-name">{f.name}{f._off&&<span style={{fontSize:9,color:"#fff",background:"var(--terra)",padding:"2px 6px",borderRadius:10,marginLeft:8}}>OpenFoodFacts</span>}</div><div style={{fontSize:10,color:"var(--mid)"}}>por 100g</div></div><div className="fl-macros"><span><b>{f.kcal100}</b>kcal</span><span><b>{f.prot100}g</b>P</span><span><b>{f.carbs100}g</b>HC</span><span><b>{f.fat100}g</b>G</span></div></div>)}</div>}</div></>);}
 
