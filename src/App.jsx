@@ -2822,14 +2822,20 @@ const searchFoodDB = async (query) => {
 };
 
 /* ─── FOOD SEARCH ─────────────────────────────────────────────────────────── */
-function FoodSearch({onSelect,onClose}){
-  const[q,setQ]=useState("");
+function FoodSearch({onSelect,onClose,initialQuery=""}){
+  const[q,setQ]=useState(initialQuery);
   const[results,setRes]=useState([]);
   const[scanOn,setScan]=useState(false);
   const[status,setSt]=useState("Escribe el nombre de un alimento");
   const[scMsg,setScMsg]=useState("");
   const[scLoad,setScLd]=useState(false);
   const timer=useRef(null);
+
+  useEffect(() => {
+    if(initialQuery && initialQuery.trim().length >= 2){
+      doSearch(initialQuery);
+    }
+  }, []);
 
   const handleBarcode=async code=>{
     if(!code)return;
@@ -2860,12 +2866,12 @@ function FoodSearch({onSelect,onClose}){
     const best = await searchFoodDB(query);
     setRes(best);
     setSt(best.length?best.length+" resultado(s):":"Sin resultados.");
-  setScLd(false);
-};
+    setScLd(false);
+  };
 
   const handleInput=v=>{setQ(v);clearTimeout(timer.current);timer.current=setTimeout(()=>doSearch(v),400);};
-  const [bcode, setBcode] = useState("");
-  return(<>{scanOn&&<BarcodeScanner onDetect={handleBarcode} onClose={()=>setScan(false)}/>}<div className="sp" onClick={e=>e.stopPropagation()}><div className="f g8 ac mb16" style={{flexWrap:"wrap"}}><input className="fi" autoFocus style={{flex:1,minWidth:140,padding:"8px 12px",fontSize:13}} placeholder="Buscar alimento (ej: Garbanzos)..." value={q} onChange={e=>handleInput(e.target.value)}/><div style={{display:"flex",gap:4}}><input className="fi" style={{width: 130, padding:"8px 12px", fontSize:13}} placeholder="Cód. Barras" value={bcode} onChange={e=>setBcode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")handleBarcode(bcode);}}/><button className="btn btn-o btn-sm" onClick={()=>handleBarcode(bcode)}>🔍 Cód.</button></div><button className="btn btn-i btn-sm" onClick={()=>setScan(true)}>📷 Escanear</button><a href="https://es.openfoodfacts.org" target="_blank" rel="noreferrer" className="btn btn-i btn-sm" style={{textDecoration:"none",display:"inline-flex",alignItems:"center"}}>🌐 Ir a web OpenFood</a><button className="btn btn-g btn-sm" onClick={onClose}>✕ Cerrar</button></div>{scMsg&&<p style={{fontSize:12,fontWeight:600,marginBottom:8,color:"var(--sage-dk)"}}>{scMsg}</p>}{scLoad&&<div className="f ac g8 ts tm"><div className="sp2 sp2-dk"/>Buscando...</div>}<p style={{fontSize:11,color:"var(--mid)",marginBottom:6}}>{status}</p>{results.length>0&&<div className="fl-list">{results.map((f,i)=><div key={i} className="fl-item" onClick={()=>onSelect(f)}><div style={{flex:1}}><div className="fl-name">{f.name}{f._off&&<span style={{fontSize:9,color:"#fff",background:"var(--terra)",padding:"2px 6px",borderRadius:10,marginLeft:8}}>OpenFoodFacts</span>}</div><div style={{fontSize:10,color:"var(--mid)"}}>por 100g</div></div><div className="fl-macros"><span><b>{f.kcal100}</b>kcal</span><span><b>{f.prot100}g</b>P</span><span><b>{f.carbs100}g</b>HC</span><span><b>{f.fat100}g</b>G</span></div></div>)}</div>}</div></>);}
+  
+  return(<>{scanOn&&<BarcodeScanner onDetect={handleBarcode} onClose={()=>setScan(false)}/>}<div className="sp" onClick={e=>e.stopPropagation()}><div className="f g8 ac mb16" style={{flexWrap:"wrap"}}><input className="fi" autoFocus style={{flex:1,minWidth:140,padding:"8px 12px",fontSize:13}} placeholder="Buscar alimento o escanea cód. barras..." value={q} onChange={e=>handleInput(e.target.value)}/><button className="btn btn-i btn-sm" onClick={()=>setScan(true)}>📷 Escanear cámara</button><a href="https://es.openfoodfacts.org" target="_blank" rel="noreferrer" className="btn btn-i btn-sm" style={{textDecoration:"none",display:"inline-flex",alignItems:"center"}}>🌐 Ir a web OpenFood</a><button className="btn btn-g btn-sm" onClick={onClose}>✕ Cerrar</button></div>{scMsg&&<p style={{fontSize:12,fontWeight:600,marginBottom:8,color:"var(--sage-dk)"}}>{scMsg}</p>}{scLoad&&<div className="f ac g8 ts tm"><div className="sp2 sp2-dk"/>Buscando...</div>}<p style={{fontSize:11,color:"var(--mid)",marginBottom:6}}>{status}</p>{results.length>0&&<div className="fl-list">{results.map((f,i)=><div key={i} className="fl-item" onClick={()=>onSelect(f)}><div style={{flex:1}}><div className="fl-name">{f.name}{f._off&&<span style={{fontSize:9,color:"#fff",background:"var(--terra)",padding:"2px 6px",borderRadius:10,marginLeft:8}}>OpenFoodFacts</span>}</div><div style={{fontSize:10,color:"var(--mid)"}}>por 100g</div></div><div className="fl-macros"><span><b>{f.kcal100}</b>kcal</span><span><b>{f.prot100}g</b>P</span><span><b>{f.carbs100}g</b>HC</span><span><b>{f.fat100}g</b>G</span></div></div>)}</div>}</div></>);}
 
 /* ─── ING ROW (con autocompletado inline) ───────────────────────────────── */
 const blankIng=()=>({id:Date.now()+Math.random(),name:"",qty:"",unit:"g",kcal:"",prot:"",carbs:"",fat:"",_auto:false,_k100:null,_p100:null,_c100:null,_f100:null});
@@ -2936,7 +2942,7 @@ function IngRow({ing,idx,onChange,onRemove}){
     <>
       {open && (
         <tr><td colSpan={9} style={{padding:"4px 0 10px"}}>
-          <FoodSearch onSelect={handleSelect} onClose={()=>setOpen(false)}/>
+          <FoodSearch onSelect={handleSelect} onClose={()=>setOpen(false)} initialQuery={ing.name}/>
         </td></tr>
       )}
       <tr className={flash ? "flash-row" : ""}>
