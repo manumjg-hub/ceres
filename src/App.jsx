@@ -2541,14 +2541,13 @@ const UNIT_MAP = {
 // Words to strip from names so matching is cleaner
 const STRIP_WORDS = ['fresco','fresca','natural','crudo','cruda','cocido','cocida','hervido','hervida','asado','asada','picado','picada','troceado','grande','pequeño','pequeña','mediano','mediana'];
 
-const parsePasted = (text) => {
+const parsePastedAsync = async (text) => {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  return lines.map((line, i) => {
+  const results = await Promise.all(lines.map(async (line, i) => {
     // Strip bullets: *, -, •, ·, numbers with . or )
     let raw = line.replace(/^[\*\-•·]\s*/, '').replace(/^\d+[\.\)]\s*/, '').trim();
 
     // Regex: optional_qty  optional_unit  optional_"de"  rest_of_name
-    // Handles "125 g de harina de trigo", "2 huevos", "1 cucharada de aceite", "Ralladura de un limón"
     const rx = /^([\d]+(?:[.,]\d+)?|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|media|medio|cuarto)?\s*(g|gr|gramos?|kg|kilogramos?|ml|mililitros?|l|litros?|cucharadas?|cucharaditas?|tazas?|unidades?|piezas?|ud|lata|bote|sobre|bolsa|dientes?|pizcas?|puñados?|ralladuras?)\s*(?:de\s+)?(.+)$/i;
     const rx2 = /^([\d]+(?:[.,]\d+)?|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|media|medio|cuarto)\s+(?:de\s+)?(.+)$/i;
 
@@ -2566,21 +2565,14 @@ const parsePasted = (text) => {
       const rawQ = m2[1]; const rawN = m2[2];
       if (rawQ) qty = (ES_NUMS[rawQ.toLowerCase()] ?? parseFloat(rawQ.replace(',', '.'))) || 1;
       name = rawN.trim();
-      // Guess unit from quantity
       unit = (qty <= 12) ? 'ud' : 'g';
     }
 
-    // Clean name: remove trailing commas/periods, parenthetical notes, adjectives
-    name = name
-      .replace(/[,.]$/, '')
-      .replace(/\s*\(.*?\)\s*$/, '')   // remove "(anisetes)", "(opcional)", etc.
-      .trim();
-
-    // Clean name for FOOD_DB lookup (strip descriptive adjectives)
+    name = name.replace(/[,.]$/, '').replace(/\s*\(.*?\)\s*$/, '').trim();
     const searchName = STRIP_WORDS.reduce((n, w) => n.replace(new RegExp('\\b' + w + '\\b', 'i'), ''), name).trim();
 
-    // Auto-lookup in FOOD_DB
-    const matches = searchLocal(searchName);
+    // Auto-lookup in Unified DB (Internet + Local)
+    const matches = await searchFoodDB(searchName);
     const best = matches[0];
 
     const unitW = { 'cucharada': 15, 'cucharadita': 5, 'taza': 240, 'kg': 1000, 'l': 1000, 'ml': 1, 'ud': 100, 'g': 1 }[unit] || 1;
@@ -2596,7 +2588,7 @@ const parsePasted = (text) => {
         fat:   Math.round(best.fat100   * factor * 10) / 10,
         _auto: true,
         _k100: best.kcal100, _p100: best.prot100, _c100: best.carbs100, _f100: best.fat100,
-        _dbName: best.name,   // for the "matched as" indicator
+        _dbName: best.name,
       };
     }
 
@@ -2607,9 +2599,10 @@ const parsePasted = (text) => {
       _auto: false,
       _k100: null, _p100: null, _c100: null, _f100: null,
     };
-  });
+  }));
+  return results;
 };
-const importURL=async(url)=>{const proxy='https://api.allorigins.win/get?url='+encodeURIComponent(url);const res=await fetch(proxy,{signal:AbortSignal.timeout(12000)});const data=await res.json();const html=data.contents||'';const ldBlocks=html.match(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)||[];for(const block of ldBlocks){try{const inner=block.replace(/<script[^>]*>/i,'').replace(/<\/script>/i,'');const json=JSON.parse(inner);const schemas=Array.isArray(json)?json:[json];for(const s of schemas){const recipe=s['@type']==='Recipe'?s:s['@graph']?.find(x=>x['@type']==='Recipe');if(recipe?.recipeIngredient?.length){return{title:recipe.name||'',ingredients:recipe.recipeIngredient.map((line,i)=>({...parsePasted(line)[0],id:Date.now()+i+Math.random()}))};} }}catch{}}throw new Error('No se encontraron ingredientes. Pega la lista manualmente.');};
+const importURL=async(url)=>{const proxy='https://api.allorigins.win/get?url='+encodeURIComponent(url);const res=await fetch(proxy,{signal:AbortSignal.timeout(12000)});const data=await res.json();const html=data.contents||'';const ldBlocks=html.match(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)||[];for(const block of ldBlocks){try{const inner=block.replace(/<script[^>]*>/i,'').replace(/<\/script>/i,'');const json=JSON.parse(inner);const schemas=Array.isArray(json)?json:[json];for(const s of schemas){const recipe=s['@type']==='Recipe'?s:s['@graph']?.find(x=>x['@type']==='Recipe');if(recipe?.recipeIngredient?.length){ const parsedIngs = await Promise.all(recipe.recipeIngredient.map(async (line,i) => { const p = await parsePastedAsync(line); return {...p[0], id:Date.now()+i+Math.random()}; })); return{title:recipe.name||'',ingredients:parsedIngs};} }}catch{}}throw new Error('No se encontraron ingredientes. Pega la lista manualmente.');};
 
 /* ─── DOWNLOAD ────────────────────────────────────────────────────────────── */
 const dlData=(content,filename,mime)=>{const a=Object.assign(document.createElement('a'),{href:'data:'+mime+','+encodeURIComponent(content),download:filename});document.body.appendChild(a);a.click();setTimeout(()=>document.body.removeChild(a),100);};
@@ -2899,6 +2892,7 @@ function IngRow({ing,idx,onChange,onRemove}){
     setFlash(true); setTimeout(() => setFlash(false), 900);
   };
 
+  const searchTimer = useRef(null);
   // Inline autocomplete on name change
   const handleNameChange = v => {
     set("name", v);
@@ -2907,8 +2901,16 @@ function IngRow({ing,idx,onChange,onRemove}){
       setSugg(found.slice(0, 6));
       setShowSugg(found.length > 0);
       setAcIdx(-1);
+
+      clearTimeout(searchTimer.current);
+      searchTimer.current = setTimeout(async () => {
+        const matches = await searchFoodDB(v);
+        setSugg(matches.slice(0, 8));
+        setShowSugg(matches.length > 0);
+      }, 500);
     } else {
       setSugg([]); setShowSugg(false);
+      clearTimeout(searchTimer.current);
     }
   };
 
@@ -3080,10 +3082,24 @@ function RecipeForm({recipe,onSave,onClose,showToast}){
     return{...f,ingredients:ings};
   });};
 
+  const [pastePreview, setPastePreview] = useState([]);
+  const [isPasting, setIsPasting] = useState(false);
+
   // Live parse preview from paste text
-  const pastePreview = useMemo(() => {
-    if (!pasteText.trim()) return [];
-    return parsePasted(pasteText);
+  useEffect(() => {
+    let active = true;
+    const run = async () => {
+      if (!pasteText.trim()) return setPastePreview([]);
+      setIsPasting(true);
+      try {
+        const parsed = await parsePastedAsync(pasteText);
+        if (active) { setPastePreview(parsed); setIsPasting(false); }
+      } catch {
+        if (active) setIsPasting(false);
+      }
+    };
+    const t = setTimeout(run, 500);
+    return () => { active = false; clearTimeout(t); };
   }, [pasteText]);
 
   const matchedCount = pastePreview.filter(p=>p._auto).length;
@@ -3154,9 +3170,10 @@ function RecipeForm({recipe,onSave,onClose,showToast}){
           />
 
           {/* Live preview */}
-          {pastePreview.length > 0 && (
+          {isPasting && <div style={{fontSize:12,fontWeight:600,color:"var(--sage)",marginTop:8}}>Buscando en la base unificada...</div>}
+          {!isPasting && pastePreview.length > 0 && (
             <>
-              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,fontSize:11,flexWrap:"wrap"}}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,fontSize:11,flexWrap:"wrap",marginTop:8}}>
                 <span style={{fontWeight:700,color:"var(--char)"}}>Vista previa — {pastePreview.length} ingrediente(s)</span>
                 {matchedCount > 0 && <span style={{color:"var(--sage-dk)",fontWeight:600}}>✓ {matchedCount} con macros</span>}
                 {unmatchedCount > 0 && <span style={{color:"var(--terra)",fontWeight:600}}>⚠ {unmatchedCount} sin datos (añade manualmente)</span>}
@@ -3177,7 +3194,7 @@ function RecipeForm({recipe,onSave,onClose,showToast}){
           )}
 
           <div className="f g8" style={{marginTop:12}}>
-            <button className="btn btn-p btn-sm" disabled={!pastePreview.length} onClick={applyPaste}>
+            <button className="btn btn-p btn-sm" disabled={!pastePreview.length || isPasting} onClick={applyPaste}>
               ✓ Añadir {pastePreview.length > 0 ? pastePreview.length + " ingredientes" : ""}
             </button>
             <button className="btn btn-g btn-sm" onClick={()=>{setPasteText("");setIngMode("search");}}>Cancelar</button>
