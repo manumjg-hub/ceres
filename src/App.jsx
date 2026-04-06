@@ -927,6 +927,56 @@ const Styles = () => (
     .nav-item:hover{color:#fff;background:rgba(255,255,255,.07)}
     .nav-item.active{color:#fff;background:rgba(255,255,255,.11);border-left-color:var(--terra-lt)}
     .main{flex:1;padding:40px 48px;overflow-y:auto;max-width:calc(100vw - 240px)}
+    /* ── MOBILE TOP BAR ── */
+    .mob-bar{display:none;position:fixed;top:0;left:0;right:0;height:52px;
+      background:var(--sage-dk);z-index:500;align-items:center;
+      padding:0 14px;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+    .mob-bar-title{display:flex;align-items:center;gap:8px;flex:1}
+    .mob-bar-title h1{color:#fff;font-size:17px;font-family:'Playfair Display',serif;line-height:1;margin:0}
+    .mob-bar-title span{color:var(--terra-lt);font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
+    .mob-ham{background:none;border:none;cursor:pointer;color:#fff;font-size:22px;
+      padding:6px;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    /* Overlay when sidebar is open */
+    .sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:499}
+    .sb-overlay.open{display:block}
+    /* ── RESPONSIVE ── */
+    @media(max-width:768px){
+      .mob-bar{display:flex}
+      /* Push content below the top bar */
+      .shell{padding-top:52px;min-height:calc(100vh - 52px)}
+      /* Sidebar becomes a slide-in drawer */
+      .sb{position:fixed;top:0;left:0;width:260px;height:100vh;z-index:600;
+        transform:translateX(-100%);transition:transform .25s ease;
+        padding-top:56px}
+      .sb.open{transform:translateX(0)}
+      /* Close btn inside sidebar on mobile */
+      .sb-close{display:flex!important}
+      /* Main takes full width */
+      .main{padding:20px 16px;max-width:100vw}
+      /* Grids */
+      .f2,.f3{grid-template-columns:1fr!important}
+      .ds{grid-template-columns:repeat(2,1fr)!important}
+      .pt-grid{grid-template-columns:1fr!important}
+      .rg{grid-template-columns:1fr!important}
+      /* Planner: allow horizontal scroll */
+      .wg{min-width:560px}
+      /* Modal full-width */
+      .mo{max-width:100vw!important;max-height:96vh;border-radius:16px 16px 0 0;
+        position:fixed;bottom:0;left:0;right:0;margin:0;padding:20px 16px}
+      .mb{align-items:flex-end;padding:0}
+      /* Cards */
+      .rc-mac{grid-template-columns:repeat(4,1fr)}
+      /* Email FAB: move right so it doesn't overlap bottom nav */
+      .email-fab{bottom:20px;left:16px}
+    }
+    @media(max-width:480px){
+      .ds{grid-template-columns:1fr!important}
+      .tab-btn{padding:8px 10px;font-size:11px}
+      .ph h2{font-size:24px}
+      .mo{padding:18px 14px}
+    }
+    /* Desktop: hide mobile elements */
+    .sb-close{display:none}
     .ph{margin-bottom:32px}.ph h2{font-size:30px;margin-bottom:5px}.ph p{color:var(--mid);font-size:14px}
     .card{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);padding:26px}
     .card-sm{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);padding:18px 22px}
@@ -3766,7 +3816,11 @@ function EmailFAB() {
 function AppInner(){
   const { user, profile } = useAuth();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [view,setView]=useState("dashboard");
+
+  // Close sidebar when navigating on mobile
+  const navigate = (id) => { setView(id); setSidebarOpen(false); };
   const[recipes,setRecipes]=useState(SEED);
   const[week,setWeek]=useState(mkWeek);
   const[appProfile,setAppProfile]=useState(DEFAULT_PROFILE);
@@ -3877,10 +3931,35 @@ function AppInner(){
   const currentPlan = PLANS.find(p => p.name === profile?.plan);
 
   return(<><Styles/>
+    {/* ── Mobile top bar — always visible on small screens ── */}
+    <div className="mob-bar">
+      <button className="mob-ham" onClick={()=>setSidebarOpen(o=>!o)} aria-label="Menú">
+        {sidebarOpen ? "✕" : "☰"}
+      </button>
+      <div className="mob-bar-title">
+        <div>
+          <h1>NutriPlanner</h1>
+          <span>Pro</span>
+        </div>
+      </div>
+      <button style={{background:"none",border:"none",color:"rgba(255,255,255,.7)",
+        fontSize:20,cursor:"pointer",padding:"6px",lineHeight:1}}
+        onClick={()=>setAccountOpen(true)} aria-label="Mi cuenta">👤</button>
+    </div>
+
+    {/* ── Overlay backdrop ── */}
+    <div className={"sb-overlay"+(sidebarOpen?" open":"")} onClick={()=>setSidebarOpen(false)}/>
+
     <div className="shell">
-      <aside className="sb">
+      <aside className={"sb"+(sidebarOpen?" open":"")}>
+        {/* Close button — only visible on mobile */}
+        <button className="sb-close"
+          onClick={()=>setSidebarOpen(false)}
+          style={{position:"absolute",top:12,right:12,background:"rgba(255,255,255,.15)",
+            border:"none",color:"#fff",borderRadius:8,width:32,height:32,cursor:"pointer",
+            fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         <div className="sb-logo"><h1>Nutri<br/>Planner</h1><span>Pro</span></div>
-        <nav>{NAV.map(n=><div key={n.id} className={"nav-item"+(view===n.id?" active":"")} onClick={()=>setView(n.id)}><span style={{fontSize:17}}>{n.icon}</span>{n.label}</div>)}</nav>
+        <nav>{NAV.map(n=><div key={n.id} className={"nav-item"+(view===n.id?" active":"")} onClick={()=>navigate(n.id)}><span style={{fontSize:17}}>{n.icon}</span>{n.label}</div>)}</nav>
         {/* Account button at bottom of sidebar */}
         <div style={{marginTop:"auto",padding:"0 16px 8px"}}>
           {user?.email === ADMIN_EMAIL ? (
