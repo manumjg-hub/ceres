@@ -3775,6 +3775,7 @@ function AppInner(){
   const[weekTemplates,setWeekTemplates]=useState([]);
   const[interviewQs,setInterviewQs]=useState(DEFAULT_QUESTIONS);
   const[subscriptions,setSubscriptions]=useState(DEFAULT_SUBS);
+  const[histPatients,setHistPatients]=useState([]);
   const[dbLoaded,setDbLoaded]=useState(false);
 
   // Cargar datos desde Supabase al iniciar sesión
@@ -3792,6 +3793,7 @@ function AppInner(){
         if(map.weekTemplates)setWeekTemplates(map.weekTemplates);
         if(map.interviewQs)  setInterviewQs(map.interviewQs);
         if(map.subscriptions)setSubscriptions(map.subscriptions);
+        if(map.histPatients) setHistPatients(map.histPatients);
         setDbLoaded(true);
       });
   },[user?.id]);
@@ -3810,6 +3812,31 @@ function AppInner(){
   useEffect(()=>{if(dbLoaded)saveToDb("weekTemplates",weekTemplates);},[weekTemplates]);
   useEffect(()=>{if(dbLoaded)saveToDb("interviewQs",interviewQs);},[interviewQs]);
   useEffect(()=>{if(dbLoaded)saveToDb("subscriptions",subscriptions);},[subscriptions]);
+  
+  // Purga e historico
+  useEffect(()=>{
+    if(dbLoaded) saveToDb("histPatients",histPatients);
+    if(!dbLoaded || histPatients.length===0) return;
+    
+    const NINETY_DAYS = 90 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const expired = histPatients.filter(p => now - (p.deleted_at || 0) > NINETY_DAYS);
+    const keep = histPatients.filter(p => now - (p.deleted_at || 0) <= NINETY_DAYS);
+
+    if (expired.length > 0) {
+      setTimeout(() => {
+        alert(`¡Atención! ${expired.length} paciente(s) eliminados hace más de 3 meses han caducado de la papelera.\nSe van a borrar definitivamente de la base de datos por normativa, pero se ha descargado un archivo Excel de seguridad.`);
+        
+        // Build Excel (.xls TSV compatible)
+        const head = ["Nombre", "Email", "Telefono", "Objetivo", "Fecha Eliminacion"].join("\t");
+        const rows = expired.map(p => [p.name||"", p.email||"", p.phone||"", p.goal||"", p.deleted_at ? new Date(p.deleted_at).toLocaleDateString() : ""].join("\t"));
+        const tsv = [head, ...rows].join("\n");
+        dlData("\ufeff" + tsv, `pacientes_caducados_${new Date().toISOString().slice(0,10)}.xls`, "application/vnd.ms-excel");
+        
+        setHistPatients(keep);
+      }, 1000); // Dar un respiro a la UI antes de saltar la alerta
+    }
+  },[histPatients, dbLoaded]);
 
   const showToast=useCallback((msg,type="success")=>setToast({msg,type,k:Date.now()}),[]);
   const addR=r=>setRecipes(rs=>[...rs,r]);
@@ -3819,7 +3846,16 @@ function AppInner(){
   const rmW=(d,m,i)=>setWeek(w=>{const nw=JSON.parse(JSON.stringify(w));nw[d][m]=(nw[d][m]||[]).filter((_,j)=>j!==i);return nw;});
   const addPt=p=>setPatients(ps=>[...ps,p]);
   const updPt=p=>setPatients(ps=>ps.map(x=>x.id===p.id?p:x));
-  const delPt=id=>setPatients(ps=>ps.filter(x=>x.id!==id));
+  const delPt=id=>{
+    setPatients(ps=>{
+      const pToDel = ps.find(x=>x.id===id);
+      if(pToDel){
+        pToDel.deleted_at = Date.now();
+        setHistPatients(hp => [...hp, pToDel]);
+      }
+      return ps.filter(x=>x.id!==id);
+    });
+  };
   const addCheckin=(patientId,entry)=>setPatients(ps=>ps.map(p=>{if(p.id!==patientId)return p;const h=[...(p.history||[]),entry];h.sort((a,b)=>a.date.localeCompare(b.date));const last=h[h.length-1];return{...p,history:h,weight:last?.weight||p.weight};}));
   const assignTpl=(patientId,tplId)=>setPatients(ps=>ps.map(p=>p.id===patientId?{...p,assignedTemplateId:tplId||null}:p));
   const saveTpl=tpl=>setWeekTemplates(ts=>[...ts,tpl]);
