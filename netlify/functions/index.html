@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="NutriPlanner Pro — Gestión nutricional profesional para nutricionistas" />
+
+    <!-- PWA manifest -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Theme colors -->
+    <meta name="theme-color" content="#3a5c3a" />
+    <meta name="msapplication-TileColor" content="#3a5c3a" />
+
+    <!-- iOS PWA — OBLIGATORIO para que funcione como app en Safari -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NutriPlanner" />
+
+    <!-- iOS icons — Safari ignora el manifest, necesita estas etiquetas -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png" />
+
+    <!-- Android / Chrome -->
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="96x96"  href="/icon-96.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Splash screen iOS (opcional pero mejora la experiencia) -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <title>NutriPlanner Pro</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('SW OK', reg.scope))
+            .catch(err => console.error('SW error', err));
+        });
+      }
+    </script>
+  </body>
+</html>
