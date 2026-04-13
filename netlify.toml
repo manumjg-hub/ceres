@@ -1,26 +1,42 @@
+# ─── Build settings ──────────────────────────────────────────
 [build]
   command = "npm run build"
   publish = "dist"
 
-[functions]
-  directory    = "netlify/functions"
-  node_bundler = "esbuild"
+# ─── Video files: no cache limit, correct MIME type ──────────
+[[headers]]
+  for = "/*.mp4"
+  [headers.values]
+    Content-Type  = "video/mp4"
+    Cache-Control = "public, max-age=31536000, immutable"
+    Accept-Ranges = "bytes"
 
-# API calls → Netlify Functions
-[[redirects]]
-  from   = "/api/*"
-  to     = "/.netlify/functions/:splat"
-  status = 200
-  force  = true
+[[headers]]
+  for = "/*.webm"
+  [headers.values]
+    Content-Type  = "video/webm"
+    Cache-Control = "public, max-age=31536000, immutable"
+    Accept-Ranges = "bytes"
 
-# Stripe webhook endpoint
-[[redirects]]
-  from   = "/webhook/stripe"
-  to     = "/.netlify/functions/stripe-webhook"
-  status = 200
-  force  = true
+# ─── JS/CSS assets ───────────────────────────────────────────
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
 
-# SPA fallback — must be last
+# ─── HTML: no cache (always fresh) ───────────────────────────
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# ─── Manifest: fix 503 from stale Service Worker ─────────────
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# ─── SPA routing: all routes → index.html ────────────────────
 [[redirects]]
   from   = "/*"
   to     = "/index.html"
