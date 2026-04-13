@@ -188,734 +188,317 @@ function VineCanvas({ scrollY }) {
 }
 
 /* ─── LANDING PAGE ───────────────────────────────────────────────────────── */
-
-/* ─── AUTH PAGE (login / register) ──────────────────────────────────────── */
-
-/* ─── LANDING PAGE ──────────────────────────────────────────────────────── */
-/* ─── CSS-in-JS styles ────────────────────────────────────────────────────── */
-const GlobalStyles = () => (
-  <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Outfit:wght@300;400;500;600&display=swap');
-
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --green-950: #0f1f0f;
-      --green-900: #1a3320;
-      --green-800: #254d30;
-      --green-700: #2f6640;
-      --green-600: #3a7a50;
-      --green-500: #4a9463;
-      --green-400: #6ab87e;
-      --green-200: #b8dfc4;
-      --green-100: #d8f0e0;
-      --green-50:  #eef8f2;
-      --terra:     #c47c3b;
-      --terra-lt:  #e8a96a;
-      --terra-dk:  #8a5520;
-      --cream:     #f9f5ee;
-      --cream-dk:  #ede7da;
-      --white:     #ffffff;
-      --char:      #111814;
-      --mid:       #4a5c50;
-      --muted:     #8a9e90;
-      --font-display: 'Cormorant Garamond', Georgia, serif;
-      --font-body: 'Outfit', system-ui, sans-serif;
-      --r: 16px;
-      --rs: 10px;
-      --transition: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    html { scroll-behavior: smooth; }
-
-    body {
-      font-family: var(--font-body);
-      background: var(--cream);
-      color: var(--char);
-      overflow-x: hidden;
-      line-height: 1.6;
-    }
-
-    /* GLOBAL VIDEO BACKGROUND */
-    .video-bg-layer {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100vh;
-      z-index: -1;
-      overflow: hidden;
-      pointer-events: none;
-    }
-    .video-bg-layer video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      opacity: 0.85;
-    }
-    .video-bg-overlay {
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(
-        to bottom,
-        rgba(249,245,238,0.85) 0%,
-        rgba(249,245,238,0.4) 30%,
-        rgba(249,245,238,0.4) 70%,
-        rgba(249,245,238,0.9) 100%
-      );
-    }
-
-    /* NAV */
-    .nav {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 20px 40px;
-      transition: background 0.4s ease, padding 0.3s ease, backdrop-filter 0.4s ease;
-    }
-    .nav.scrolled {
-      background: rgba(249,245,238,0.85);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      padding: 14px 40px;
-      border-bottom: 1px solid rgba(58,122,80,0.1);
-    }
-    .nav-logo {
-      font-family: var(--font-display);
-      font-size: 22px; font-weight: 700;
-      color: var(--green-800); letter-spacing: -0.01em;
-      transition: color 0.4s;
-    }
-    .nav-logo span { color: var(--terra); }
-    .nav-links { display: flex; gap: 32px; align-items: center; }
-    .nav-links a {
-      font-size: 14px; font-weight: 500; color: var(--mid);
-      text-decoration: none; transition: color 0.2s; letter-spacing: 0.01em;
-    }
-    .nav-links a:hover { color: var(--green-700); }
-    .nav-cta {
-      background: var(--terra); color: var(--white) !important;
-      padding: 9px 22px; border-radius: 50px;
-      font-weight: 600 !important; font-size: 13px !important;
-      transition: background 0.2s, transform 0.1s, color 0.2s !important;
-    }
-    .nav-cta:hover { background: var(--terra-dk) !important; transform: translateY(-1px); }
-
-    /* HERO SECTION (MODIFIED FOR GLOBAL VIDEO) */
-    .hero-section {
-      height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      padding: 0 24px;
-      position: relative;
-    }
-    .hero-content {
-      position: relative; z-index: 2;
-      max-width: 900px;
-    }
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: 8px;
-      background: rgba(74,148,99,0.12);
-      border: 1px solid rgba(74,148,99,0.25);
-      backdrop-filter: blur(10px);
-      color: var(--green-800); font-size: 12px; font-weight: 500;
-      padding: 6px 16px; border-radius: 50px;
-      margin-bottom: 28px; letter-spacing: 0.05em; text-transform: uppercase;
-    }
-    .hero-badge::before {
-      content: ''; width: 6px; height: 6px; border-radius: 50%;
-      background: var(--green-400); animation: pulse 2s infinite;
-    }
-    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.4)} }
-    .hero-title {
-      font-family: var(--font-display);
-      font-size: clamp(42px, 7vw, 90px);
-      font-weight: 700; color: var(--char);
-      line-height: 1.08; letter-spacing: -0.02em;
-      margin-bottom: 24px;
-    }
-    .hero-title em { color: var(--terra); font-style: normal; }
-    .hero-sub {
-      font-size: clamp(16px, 2vw, 20px);
-      color: var(--mid);
-      max-width: 560px; line-height: 1.65;
-      margin: 0 auto 40px; font-weight: 300;
-    }
-    .hero-actions { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; justify-content: center; }
-    
-    /* INTERACTIVE ELEMENTS HOVER EFFECTS */
-    .btn-primary, .btn-ghost, .problem-card, .feature-item, .pricing-card, .testimonial-card, .metric-item, .nav-cta {
-      transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
-    }
-
-    .btn-primary {
-      background: var(--terra); color: var(--white);
-      padding: 15px 32px; border-radius: 50px;
-      font-size: 15px; font-weight: 600; font-family: var(--font-body);
-      border: none; cursor: pointer; text-decoration: none;
-      display: inline-flex; align-items: center; gap: 8px;
-      box-shadow: 0 4px 24px rgba(196,124,59,0.2);
-    }
-    .btn-primary:hover { 
-      background: var(--terra-dk); 
-      transform: translateY(-3px) scale(1.02); 
-      box-shadow: 0 12px 32px rgba(196,124,59,0.3); 
-    }
-
-    .btn-ghost {
-      background: rgba(255,255,255,0.2); color: var(--green-800);
-      padding: 15px 32px; border-radius: 50px;
-      font-size: 15px; font-weight: 500; font-family: var(--font-body);
-      border: 1.5px solid rgba(74,148,99,0.4); cursor: pointer; text-decoration: none;
-      display: inline-flex; align-items: center; gap: 8px;
-      backdrop-filter: blur(4px);
-    }
-    .btn-ghost:hover { 
-      border-color: var(--green-600); 
-      background: rgba(255,255,255,0.4); 
-      transform: translateY(-3px);
-    }
-
-    /* CARDS HOVER */
-    .problem-card:hover, .feature-item:hover, .pricing-card:hover, .testimonial-card:hover {
-      transform: translateY(-8px);
-      box-shadow: 0 20px 40px rgba(0,0,0,0.06);
-      border-color: var(--green-200);
-      background: rgba(255,255,255,0.95);
-      backdrop-filter: blur(10px);
-    }
-
-    /* SECTIONS */
-    section { padding: 100px 40px; position: relative; z-index: 1; }
-    .container { max-width: 1160px; margin: 0 auto; }
-
-    /* METRICS BAR */
-    .metrics-bar {
-      background: rgba(26,51,32,0.95);
-      backdrop-filter: blur(20px);
-      padding: 60px 40px;
-      position: relative; z-index: 1;
-    }
-    .metrics-grid {
-      max-width: 1000px; margin: 0 auto;
-      display: grid; grid-template-columns: repeat(3,1fr); gap: 1px;
-      background: rgba(255,255,255,0.08);
-      border-radius: var(--r); overflow: hidden;
-    }
-    .metric-item {
-      padding: 40px 32px; text-align: center;
-      background: var(--green-900);
-    }
-    .metric-item:hover { background: var(--green-800); }
-    .metric-num {
-      font-family: var(--font-display);
-      font-size: 52px; font-weight: 700;
-      color: var(--green-400); line-height: 1;
-      margin-bottom: 10px;
-    }
-    .metric-label { font-size: 14px; color: var(--green-200); font-weight: 300; line-height: 1.5; }
-
-    /* SECTION LABELS */
-    .section-label {
-      display: inline-block;
-      font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
-      text-transform: uppercase; color: var(--green-600);
-      margin-bottom: 16px;
-    }
-    .section-title {
-      font-family: var(--font-display);
-      font-size: clamp(32px, 4vw, 52px);
-      font-weight: 700; line-height: 1.12;
-      letter-spacing: -0.02em; color: var(--char);
-      margin-bottom: 20px;
-    }
-    .section-title em { color: var(--green-700); font-style: normal; }
-    .section-sub {
-      font-size: 17px; color: var(--mid);
-      max-width: 520px; line-height: 1.7; font-weight: 300;
-    }
-
-    /* PROBLEM / SOLUTION */
-    .problem-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 64px;
-    }
-    .problem-card {
-      background: rgba(255,255,255,0.7); border-radius: var(--r);
-      padding: 40px; border: 1px solid var(--cream-dk);
-      backdrop-filter: blur(8px);
-    }
-    .problem-card.solution { border-color: var(--green-200); background: rgba(238,248,242,0.8); }
-    
-    .feature-item {
-      background: rgba(15,31,15,0.7); padding: 36px 32px;
-      backdrop-filter: blur(10px);
-    }
-    .feature-item:hover { background: rgba(26,51,32,0.9); }
-    
-    .pricing-card {
-      border: 1px solid var(--cream-dk);
-      border-radius: var(--r); padding: 36px 32px;
-      background: rgba(255,255,255,0.7);
-      backdrop-filter: blur(8px);
-    }
-    
-    .testimonial-card {
-      background: rgba(255,255,255,0.7); border-radius: var(--r);
-      padding: 32px; border: 1px solid var(--cream-dk);
-      backdrop-filter: blur(8px);
-    }
-
-    /* OTHER SECTIONS FIXED FOR TRANSAPRENCY */
-    .features-section { background: transparent; padding-bottom: 160px; }
-    .features-section .section-title { color: var(--white); }
-    .features-section .section-label { color: var(--green-400); }
-    .features-section .section-sub { color: var(--green-200); }
-    
-    .mockup-section { background: transparent; }
-    .pricing-section { background: transparent; }
-    .testimonials-section { background: transparent; }
-    .faq-section { background: transparent; }
-    
-    footer { background: var(--green-950); position: relative; z-index: 10; }
-
-    /* REVEAL */
-    .reveal {
-      opacity: 0; transform: translateY(28px);
-      transition: opacity 0.7s ease, transform 0.7s ease;
-    }
-    .reveal.visible { opacity: 1; transform: translateY(0); }
-
-    @media (max-width: 900px) {
-      section { padding: 72px 24px; }
-      .nav { padding: 16px 24px; }
-      .nav.scrolled { padding: 12px 24px; }
-      .nav-links { display: none; }
-      .problem-grid, .features-grid, .pricing-grid, .testimonials-grid, .addons-grid, .metrics-grid { grid-template-columns: 1fr; }
-    }
-  `}</style>
-);
-
-/* ─── DATA ──────────────────────────────────────────────────────────────── */
-const FEATURES = [
-  { icon: "👥", title: "Gestión de pacientes", desc: "Historial completo, datos antropométricos, seguimiento de peso y entrevistas iniciales personalizadas." },
-  { icon: "🗓", title: "Planificador semanal", desc: "Arrastra recetas a cualquier día y comida. Genera la semana entera en minutos, no horas." },
-  { icon: "📋", title: "Plantillas reutilizables", desc: "Crea una dieta una vez, úsala con cualquier paciente. Personaliza en segundos." },
-  { icon: "🛒", title: "Lista de la compra automática", desc: "Generada al instante desde el plan semanal. Con márgenes de seguridad y agrupada por categorías." },
-  { icon: "📄", title: "PDF profesional con tu marca", desc: "Portada personalizada con tu logo, paleta y datos de contacto. Listo para entregar al paciente." },
-  { icon: "📊", title: "Dashboard y facturación", desc: "Métricas de consulta, evolución por plan y facturación acumulada. Todo en un vistazo." },
+const LANDING_PLANS = [
+  { id:"basico", name:"Básico", price:29, color:"#4caf88", accent:"#2d7a5a", icon:"🌱", desc:"Empieza a gestionar tu consulta",
+    features:["Pacientes ilimitados","Planificador semanal de menús","Lista de compra automática","PDF menú + recetas","Cuestionario personalizable","Historial de peso y seguimiento"] },
+  { id:"pro", name:"Pro", price:59, color:"#3a7ab5", accent:"#1a4f80", icon:"⭐", popular:true, desc:"La elección de los profesionales",
+    features:["Todo lo del plan Básico","Composición corporal completa","Editor de dieta personalizado","Plantillas reutilizables ilimitadas","Dashboard de facturación","Suscripciones de pacientes","Acceso prioritario a novedades"] },
+];
+const LANDING_FEATURES = [
+  { icon:"👥", title:"Gestión de pacientes", desc:"Todos tus pacientes organizados. Historial completo, evolución y documentos en un solo lugar.", fruit:"🥭" },
+  { icon:"📋", title:"Planificación de menús", desc:"Crea menús semanales en minutos con el editor visual. Genera PDFs listos para imprimir al momento.", fruit:"🍍" },
+  { icon:"📊", title:"Seguimiento nutricional", desc:"Controla el progreso con gráficas detalladas de peso, medidas y composición corporal.", fruit:"🍌" },
+  { icon:"🛒", title:"Lista de compra automática", desc:"Genera la lista de compra del menú con un clic. Ahorra tiempo a ti y a tus pacientes.", fruit:"🥥" },
+  { icon:"💰", title:"Facturación integrada", desc:"Gestiona cobros, suscripciones y facturas desde la misma plataforma.", fruit:"🍋" },
+  { icon:"📱", title:"Acceso desde cualquier lugar", desc:"Funciona en cualquier dispositivo. Sin instalaciones, siempre actualizado.", fruit:"🍊" },
 ];
 
-const PLANS = [
-  {
-    name: "Básico", price: 10, featured: false,
-    features: ["Hasta 20 pacientes", "Planificador semanal", "Exportar PDF", "Soporte email"],
-  },
-  {
-    name: "Pro", price: 25, featured: true,
-    features: ["Pacientes ilimitados", "Todo lo de Básico", "Plantillas reutilizables", "Estadísticas de consulta", "Soporte prioritario"],
-  },
-  {
-    name: "Premium", price: 50, featured: false,
-    features: ["Todo lo de Pro", "PDF con marca blanca", "API de acceso", "Account manager"],
-  },
-];
+function LandingPage({ onLogin, onRegister, onSelectPlan }) {
+  const [scrollY, setScrollY] = useState(0);
+  const [hoverFeat, setHoverFeat] = useState(null);
+  const [hoverPlan, setHoverPlan] = useState(null);
 
-const TESTIMONIALS = [
-  { initials: "AG", name: "Ana García", role: "Nutricionista clínica · Madrid", text: "Antes tardaba casi 2 horas por paciente entre la dieta y la lista de la compra. Ahora lo tengo en 10 minutos. Literalmente he doblado mi cartera de clientes en 3 meses." },
-  { initials: "MR", name: "Marc Ribera", role: "Nutricionista deportivo · Barcelona", text: "La función de plantillas es un antes y un después. Tengo mis protocolos guardados y los adapto en segundos. El PDF que sale es tan profesional que los clientes lo comentan." },
-  { initials: "LM", name: "Laura Martínez", role: "Dietista · Valencia", text: "Por fin una herramienta hecha para nutricionistas, no para hospitales. Es intuitiva, rápida y el soporte responde de verdad. Me ha devuelto tiempo para lo que me gusta: mis pacientes." },
-];
-
-const FAQS = [
-  { q: "¿Puedo cancelar en cualquier momento?", a: "Sí, sin permanencia ni penalizaciones. Cancelas desde tu panel y no se renueva el siguiente ciclo. Conservas el acceso hasta el final del período pagado." },
-  { q: "¿Los PDF tienen mi marca y logotipo?", a: "Sí. En la sección Exportar puedes configurar tu nombre, logo, especialidad, email y web. Cada PDF generado incluye una portada profesional con tus datos." },
-  { q: "¿Funciona para nutricionistas independientes sin clínica?", a: "Perfectamente. Está diseñado justo para ese perfil: autónomos y pequeñas consultas que quieren trabajar con eficiencia sin depender de software corporativo caro." },
-  { q: "¿Qué pasa si supero los 20 pacientes del plan Básico?", a: "Puedes hacer upgrade a Pro en cualquier momento desde tu panel. El cambio es inmediato y se prorratea el precio restante del mes en curso." },
-  { q: "¿El chatbot nutricional entiende restricciones alimentarias?", a: "Sí. El add-on de chatbot tiene en cuenta alergias, intolerancias, preferencias y alimentos disponibles en casa para adaptar la dieta en tiempo real." },
-];
-
-/* ─── FAQ ITEM ────────────────────────────────────────────────────────────── */
-function FaqItem({ q, a }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="faq-item">
-      <button className="faq-q" onClick={() => setOpen(!open)}>
-        {q}
-        <span className={`faq-arrow ${open ? "open" : ""}`}>+</span>
-      </button>
-      <div className={`faq-a ${open ? "open" : ""}`}>{a}</div>
-    </div>
-  );
-}
-
-/* ─── MAIN COMPONENT ────────────────────────────────────────────────────── */
-export default function LandingPage({ onLogin = () => {}, onRegister = () => {}, onSelectPlan = () => {} }) {
-  const videoRef = useRef(null);
-  const [scrolled, setScrolled] = useState(false);
-
-  // Scroll-driven video scrubbing
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    let raf = null;
-    const handleScroll = () => {
-      if (raf) cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        // Nav scroll state
-        const scrollY = window.scrollY;
-        setScrolled(scrollY > 60);
-
-        // Global Video scrubbing
-        const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
-        const progress = Math.max(0, Math.min(1, scrollY / scrollHeight));
-
-        if (video.duration && isFinite(video.duration)) {
-          video.currentTime = progress * video.duration;
-        }
-      });
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-      if (raf) cancelAnimationFrame(raf);
-    };
+    const onScroll = () => setScrollY(window.scrollY);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Reveal on scroll
-  useEffect(() => {
-    const els = document.querySelectorAll(".reveal");
-    const obs = new IntersectionObserver(
-      (entries) => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add("visible"); }),
-      { threshold: 0.12 }
-    );
-    els.forEach(el => obs.observe(el));
-    return () => obs.disconnect();
-  }, []);
+  const heroOpacity = Math.max(0, 1 - scrollY / 500);
+  const heroY = scrollY * 0.18;
 
-  const chartBars = [
-    { h: 40, color: "#4a9463" }, { h: 55, color: "#4a9463" },
-    { h: 48, color: "#4a9463" }, { h: 72, color: "#4a9463" },
-    { h: 65, color: "#4a9463" }, { h: 88, color: "#3a7a50" },
-    { h: 95, color: "#2f6640" },
-  ];
+  const lp = { // landing styles inline
+    page: { fontFamily:"'Helvetica Neue',Helvetica,Arial,sans-serif", background:"#fafaf8", color:"#1a1a1a", overflowX:"hidden", minHeight:"100vh" },
+    nav: { position:"fixed", top:0, left:0, right:0, zIndex:100, padding:"0 5%", transition:"all .3s", background: scrollY>60?"rgba(255,255,255,0.94)":"transparent", backdropFilter: scrollY>60?"blur(20px)":"none", boxShadow: scrollY>60?"0 1px 0 rgba(0,0,0,.08)":"none" },
+    navInner: { maxWidth:1100, margin:"0 auto", height:60, display:"flex", alignItems:"center", justifyContent:"space-between" },
+    logo: { display:"flex", alignItems:"center", gap:8 },
+    logoTxt: { fontSize:16, fontWeight:600, letterSpacing:"-.02em" },
+    navLinks: { display:"flex", alignItems:"center", gap:20 },
+    navA: { fontSize:14, color:"#555", textDecoration:"none", fontWeight:400 },
+    navBtnPrimary: { fontSize:13, color:"#fff", background:"#2d7a5a", border:"none", cursor:"pointer", padding:"7px 18px", borderRadius:20, fontWeight:600 },
+    navBtnGhost: { fontSize:13, color:"#333", background:"transparent", border:"none", cursor:"pointer", padding:"7px 12px" },
+    hero: { minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:"110px 5% 60px", maxWidth:1100, margin:"0 auto", gap:60, flexWrap:"wrap" },
+    hContent: { flex:"1 1 400px", opacity:heroOpacity, transform:`translateY(${heroY}px)` },
+    badge: { display:"inline-block", background:"rgba(76,175,136,.12)", color:"#2d7a5a", fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:20, marginBottom:24, letterSpacing:".02em" },
+    h1: { fontSize:"clamp(34px,5vw,58px)", fontWeight:800, lineHeight:1.08, letterSpacing:"-.035em", margin:"0 0 20px", color:"#050505" },
+    accent: { color:"#2d7a5a" },
+    hsub: { fontSize:17, lineHeight:1.65, color:"#555", margin:"0 0 32px", maxWidth:440 },
+    ctas: { display:"flex", gap:16, alignItems:"center", flexWrap:"wrap" },
+    ctaPrimary: { background:"#2d7a5a", color:"#fff", border:"none", padding:"14px 30px", borderRadius:30, fontSize:16, fontWeight:700, cursor:"pointer", letterSpacing:"-.01em" },
+    ctaGhost: { color:"#2d7a5a", textDecoration:"none", fontSize:15, fontWeight:500 },
+    heroNote: { fontSize:12, color:"#aaa", marginTop:14 },
+    mockupWrap: { flex:"0 0 340px", opacity:heroOpacity, transform:`translateY(${heroY * 0.5}px)` },
+    mockupWin: { background:"#fff", borderRadius:18, boxShadow:"0 30px 80px rgba(0,0,0,.14)", overflow:"hidden" },
+    mockupBar: { background:"#f5f5f5", padding:"10px 14px", display:"flex", gap:6, alignItems:"center" },
+    dot: { width:12, height:12, borderRadius:"50%", display:"inline-block" },
+    mockupBody: { padding:20 },
+    proof: { background:"#f2f2ef", padding:"44px 5%", textAlign:"center" },
+    proofLbl: { fontSize:12, color:"#bbb", textTransform:"uppercase", letterSpacing:".1em", marginBottom:28 },
+    proofRow: { display:"flex", justifyContent:"center", gap:"clamp(24px,6vw,80px)", flexWrap:"wrap" },
+    pNum: { fontSize:30, fontWeight:800, letterSpacing:"-.03em", color:"#050505" },
+    pLbl: { fontSize:12, color:"#888", marginTop:3 },
+    section: { padding:"90px 5%", maxWidth:1100, margin:"0 auto" },
+    sHead: { textAlign:"center", marginBottom:60 },
+    sBadge: { display:"inline-block", background:"rgba(76,175,136,.1)", color:"#2d7a5a", fontSize:11, fontWeight:700, padding:"4px 14px", borderRadius:20, marginBottom:14, textTransform:"uppercase", letterSpacing:".07em" },
+    sTitle: { fontSize:"clamp(26px,4vw,44px)", fontWeight:800, letterSpacing:"-.035em", lineHeight:1.12, margin:"0 0 14px", color:"#050505" },
+    sSub: { fontSize:16, color:"#666", maxWidth:520, margin:"0 auto", lineHeight:1.65 },
+    grid3: { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:18 },
+    featCard: (i) => ({ background:"#fff", borderRadius:16, padding:28, transition:"transform .2s,box-shadow .2s", position:"relative", overflow:"hidden", transform:hoverFeat===i?"translateY(-5px)":"none", boxShadow:hoverFeat===i?"0 20px 50px rgba(0,0,0,.1)":"0 2px 16px rgba(0,0,0,.05)" }),
+    howBg: { background:"#f2f2ef", padding:"90px 5%" },
+    steps: { display:"flex", justifyContent:"center", gap:"clamp(28px,6vw,72px)", maxWidth:860, margin:"0 auto", flexWrap:"wrap" },
+    step: { flex:"0 0 200px", textAlign:"center" },
+    stepN: { fontSize:12, fontWeight:700, color:"#4caf88", letterSpacing:".1em", marginBottom:14 },
+    stepT: { fontSize:19, fontWeight:700, margin:"0 0 8px", letterSpacing:"-.02em" },
+    stepD: { fontSize:13, color:"#666", lineHeight:1.6, margin:0 },
+    planGrid: { display:"flex", justifyContent:"center", gap:22, flexWrap:"wrap", marginTop:16 },
+    planCard: (p) => ({ background:"#fff", borderRadius:20, padding:"32px 26px", flex:"0 0 330px", textAlign:"left", position:"relative", transition:"transform .2s,box-shadow .2s", border:p.popular?"2px solid "+p.color:"1.5px solid #e8e8e8", transform:(p.popular||hoverPlan===p.id)?"scale(1.03)":"scale(1)", boxShadow:(p.popular||hoverPlan===p.id)?"0 16px 50px rgba(0,0,0,.12)":"0 2px 16px rgba(0,0,0,.05)" }),
+    planBtn: (p) => ({ width:"100%", padding:"13px 0", borderRadius:30, fontSize:15, fontWeight:700, cursor:"pointer", letterSpacing:"-.01em", background:p.popular?p.color:"transparent", color:p.popular?"#fff":p.color, border:"2px solid "+p.color }),
+    tGrid: { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))", gap:18 },
+    tCard: { background:"#fff", borderRadius:16, padding:26 },
+    darkCta: { background:"#081510", padding:"90px 5%", textAlign:"center", position:"relative", overflow:"hidden" },
+    footer: { background:"#080808", padding:"28px 5%" },
+  };
 
   return (
-    <>
-      <GlobalStyles />
-
-      {/* FIXED VIDEO BACKGROUND */}
-      <div className="video-bg-layer">
-        <video
-          ref={videoRef}
-          src="/Salad_elements_falling_202604121850.mp4"
-          preload="auto"
-          muted
-          playsInline
-        />
-        <div className="video-bg-overlay" />
-      </div>
+    <div style={lp.page}>
+      <VineCanvas scrollY={scrollY} />
 
       {/* NAV */}
-      <nav className={`nav ${scrolled ? "scrolled" : ""}`}>
-        <div className="nav-logo">Nutri<span>Planner</span> Pro</div>
-        <div className="nav-links">
-          <a href="#features">Funcionalidades</a>
-          <a href="#pricing">Precios</a>
-          <a href="#faq">FAQ</a>
-          <button onClick={onLogin} style={{background:"none",border:"none",cursor:"pointer",color:"var(--mid)",fontSize:"0.875rem",fontWeight:500,padding:"8px 12px",fontFamily:"inherit"}}>Iniciar sesión</button>
-          <button onClick={onRegister} className="nav-cta">Empezar gratis</button>
+      <nav style={lp.nav}>
+        <div style={lp.navInner}>
+          <div style={lp.logo}>
+            <span style={{fontSize:22}}>🌿</span>
+            <span style={lp.logoTxt}>NutriPlanner <strong>Pro</strong></span>
+          </div>
+          <div style={lp.navLinks}>
+            <a href="#features" style={lp.navA}>Funciones</a>
+            <a href="#pricing" style={lp.navA}>Precios</a>
+            <button onClick={onLogin} style={lp.navBtnGhost}>Iniciar sesión</button>
+            <button onClick={onRegister} style={lp.navBtnPrimary}>Empezar gratis</button>
+          </div>
         </div>
       </nav>
 
-      {/* HERO SECTION */}
-      <div className="hero-section">
-        <div className="hero-content">
-          <div className="hero-badge">Prueba gratuita 14 días</div>
-          <h1 className="hero-title">
-            Tu consulta de nutrición,<br />en <em>piloto automático.</em>
+      {/* HERO */}
+      <section style={lp.hero}>
+        <div style={lp.hContent}>
+          <div style={lp.badge}>✦ El primer mes es gratis · Sin permanencia</div>
+          <h1 style={lp.h1}>
+            Tu consulta de nutrición,<br/>
+            <span style={lp.accent}>más inteligente</span>
           </h1>
-          <p className="hero-sub">
-            Gestiona más pacientes, genera dietas personalizadas y entrega listas
-            de la compra profesionales en minutos. No en horas.
+          <p style={lp.hsub}>
+            La plataforma todo-en-uno para nutricionistas que quieren dedicar
+            más tiempo a sus pacientes y menos a la gestión.
           </p>
-          <div className="hero-actions">
-            <button onClick={onRegister} className="btn-primary">
-              Prueba 14 días gratis →
-            </button>
-            <a href="#features" className="btn-ghost">
-              Ver cómo funciona
-            </a>
+          <div style={lp.ctas}>
+            <button onClick={onRegister} style={lp.ctaPrimary}>Empieza gratis hoy →</button>
+            <a href="#features" style={lp.ctaGhost}>Ver cómo funciona</a>
           </div>
-          <p className="hero-trust">Sin tarjeta de crédito · Cancela cuando quieras</p>
+          <p style={lp.heroNote}>Sin tarjeta de crédito · Cancela cuando quieras</p>
         </div>
-      </div>
 
-      {/* METRICS BAR */}
-      <div className="metrics-bar">
-        <div className="metrics-grid reveal">
-          <div className="metric-item">
-            <div className="metric-num">2.4h</div>
-            <div className="metric-label">ahorradas por semana<br />y paciente de media</div>
-          </div>
-          <div className="metric-item">
-            <div className="metric-num">100%</div>
-            <div className="metric-label">de las listas de compra<br />generadas automáticamente</div>
-          </div>
-          <div className="metric-item">
-            <div className="metric-num">14d</div>
-            <div className="metric-label">de prueba gratuita<br />sin compromiso</div>
-          </div>
-        </div>
-      </div>
-
-      {/* PROBLEM / SOLUTION */}
-      <section>
-        <div className="container">
-          <div className="reveal">
-            <div className="section-label">El problema</div>
-            <h2 className="section-title">El tiempo que pierdes<br /><em>es tiempo que no facturas.</em></h2>
-            <p className="section-sub">Los nutricionistas gastan más tiempo en papeleo que con sus pacientes. NutriPlanner Pro lo invierte.</p>
-          </div>
-          <div className="problem-grid">
-            <div className="problem-card reveal">
-              <div className="card-icon">⏳</div>
-              <div className="card-title">Antes de NutriPlanner</div>
-              <ul className="pain-list">
-                <li>Crear dietas desde cero para cada paciente</li>
-                <li>Listas de la compra artesanales en Word o papel</li>
-                <li>Seguimiento disperso en hojas de Excel</li>
-                <li>PDFs con aspecto poco profesional</li>
-                <li>Sin tiempo para escalar la consulta</li>
-              </ul>
+        <div style={lp.mockupWrap}>
+          <div style={lp.mockupWin}>
+            <div style={lp.mockupBar}>
+              <span style={{...lp.dot,background:"#ff5f57"}}/>
+              <span style={{...lp.dot,background:"#febc2e"}}/>
+              <span style={{...lp.dot,background:"#28c840"}}/>
             </div>
-            <div className="problem-card solution reveal">
-              <div className="card-icon">⚡</div>
-              <div className="card-title">Con NutriPlanner Pro</div>
-              <ul className="gain-list">
-                <li>Dietas listas en minutos con plantillas reutilizables</li>
-                <li>Lista de la compra generada y enviada en un clic</li>
-                <li>Panel central con historial completo de cada paciente</li>
-                <li>PDFs con tu marca, logo y datos de contacto</li>
-                <li>Más pacientes, menos horas. Más ingresos.</li>
-              </ul>
+            <div style={lp.mockupBody}>
+              <div style={{display:"flex",gap:24,marginBottom:16}}>
+                {[["48","Pacientes activos"],["98%","Adherencia media"]].map(([n,l])=>(
+                  <div key={l}>
+                    <div style={{fontSize:26,fontWeight:800,letterSpacing:"-.03em",color: l==="Adherencia media"?"#4caf88":"#050505"}}>{n}</div>
+                    <div style={{fontSize:11,color:"#aaa",marginTop:2}}>{l}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"flex-end",height:90,marginBottom:14}}>
+                {[60,80,45,90,70].map((h,i)=>(
+                  <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                    <div style={{width:"100%",height:h,borderRadius:4,background:i===3?"#4caf88":"#e8f5e9"}}/>
+                    <div style={{fontSize:9,color:"#ccc"}}>{"LMMJV"[i]}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:11,color:"#555",background:"#f0f9f5",padding:"6px 10px",borderRadius:8,display:"inline-block"}}>
+                🥗 Dieta mediterránea · 1.800 kcal
+              </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* PROOF */}
+      <section style={lp.proof}>
+        <p style={lp.proofLbl}>Confían en nosotros</p>
+        <div style={lp.proofRow}>
+          {[["500+","Nutricionistas"],["24.000+","Pacientes gestionados"],["98%","Satisfacción"],["4,9★","Valoración media"]].map(([n,l])=>(
+            <div key={l} style={{textAlign:"center"}}>
+              <div style={lp.pNum}>{n}</div>
+              <div style={lp.pLbl}>{l}</div>
+            </div>
+          ))}
         </div>
       </section>
 
       {/* FEATURES */}
-      <section className="features-section" id="features">
-        <div className="container">
-          <div className="reveal">
-            <div className="section-label">Funcionalidades</div>
-            <h2 className="section-title">
-              Todo lo que necesitas.<br /><em>Nada de lo que no.</em>
-            </h2>
-            <p className="section-sub">Diseñado por y para nutricionistas. Sin funciones de relleno.</p>
-          </div>
-          <div className="features-grid reveal" style={{ 
-            display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "2px", 
-            marginTop: "64px", background: "rgba(255,255,255,0.05)", borderRadius: "var(--r)", overflow: "hidden" 
-          }}>
-            {FEATURES.map((f, i) => (
-              <div className="feature-item" key={i}>
-                <div className="feature-icon" style={{
-                  width: "52px", height: "52px", borderRadius: "14px",
-                  background: "var(--green-900)", border: "1px solid rgba(255,255,255,0.08)",
-                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", marginBottom: "20px"
-                }}>{f.icon}</div>
-                <div className="feature-title" style={{
-                  fontFamily: "var(--font-display)", fontSize: "19px", fontWeight: "600",
-                  color: "var(--white)", marginBottom: "10px"
-                }}>{f.title}</div>
-                <div className="feature-desc" style={{ fontSize: "13px", color: "var(--green-200)", lineHeight: "1.65", fontWeight: "300" }}>{f.desc}</div>
-              </div>
-            ))}
-          </div>
+      <section id="features" style={lp.section}>
+        <div style={lp.sHead}>
+          <div style={lp.sBadge}>Funciones</div>
+          <h2 style={lp.sTitle}>Todo lo que necesitas,<br/>en un solo lugar</h2>
+          <p style={lp.sSub}>Diseñado por y para nutricionistas. Cada función existe para ahorrarte tiempo.</p>
+        </div>
+        <div style={lp.grid3}>
+          {LANDING_FEATURES.map((f,i)=>(
+            <div key={f.title} style={lp.featCard(i)} onMouseEnter={()=>setHoverFeat(i)} onMouseLeave={()=>setHoverFeat(null)}>
+              <div style={{position:"absolute",top:14,right:14,fontSize:28,opacity:0.15}}>{f.fruit}</div>
+              <div style={{fontSize:28,marginBottom:10}}>{f.icon}</div>
+              <h3 style={{fontSize:17,fontWeight:700,margin:"0 0 8px",letterSpacing:"-.01em"}}>{f.title}</h3>
+              <p style={{fontSize:13,color:"#666",lineHeight:1.65,margin:0}}>{f.desc}</p>
+            </div>
+          ))}
         </div>
       </section>
 
-      {/* MOCKUP */}
-      <section className="mockup-section" id="demo">
-        <div className="container">
-          <div className="reveal" style={{ textAlign: "center" }}>
-            <div className="section-label">La plataforma</div>
-            <h2 className="section-title">Todo en un solo lugar.</h2>
-            <p className="section-sub" style={{ margin: "0 auto" }}>
-              Tu consulta entera en una pantalla. Rápido, limpio, profesional.
-            </p>
-          </div>
-          <div className="mockup-wrap reveal" style={{ marginTop: "56px", position: "relative", background: "rgba(26,51,32,0.9)", borderRadius: "24px", padding: "48px 48px 0", overflow: "hidden", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.1)" }}>
-            <div className="mockup-bar" style={{ display: "flex", gap: "6px", marginBottom: "20px" }}>
-              <div className="mockup-dot" style={{ width: "12px", height: "12px", borderRadius: "50%", background: "#ff5f57" }} />
-              <div className="mockup-dot" style={{ width: "12px", height: "12px", borderRadius: "50%", background: "#febc2e" }} />
-              <div className="mockup-dot" style={{ width: "12px", height: "12px", borderRadius: "50%", background: "#28c840" }} />
+      {/* HOW IT WORKS */}
+      <section style={lp.howBg}>
+        <div style={{...lp.sHead,marginBottom:52}}>
+          <div style={lp.sBadge}>Así de simple</div>
+          <h2 style={lp.sTitle}>Empieza en 3 minutos</h2>
+        </div>
+        <div style={lp.steps}>
+          {[
+            {n:"01",t:"Crea tu cuenta",d:"Regístrate gratis. Sin tarjeta, sin complicaciones."},
+            {n:"02",t:"Añade tus pacientes",d:"Importa o crea fichas en segundos con toda su información."},
+            {n:"03",t:"Planifica y crece",d:"Gestiona menús, seguimiento y facturación desde un solo panel."},
+          ].map(st=>(
+            <div key={st.n} style={lp.step}>
+              <div style={lp.stepN}>{st.n}</div>
+              <h3 style={lp.stepT}>{st.t}</h3>
+              <p style={lp.stepD}>{st.d}</p>
             </div>
-            <div className="mockup-screen" style={{ background: "var(--cream)", borderRadius: "12px 12px 0 0", minHeight: "320px", padding: "24px", display: "grid", gridTemplateColumns: "200px 1fr", gap: "20px" }}>
-              <div className="mockup-sidebar" style={{ background: "var(--green-800)", borderRadius: "8px", padding: "20px 16px" }}>
-                <div className="sidebar-logo" style={{ fontFamily: "var(--font-display)", fontSize: "16px", color: "var(--white)", fontWeight: "700", marginBottom: "24px" }}>NutriPlanner</div>
-                {["📊 Dashboard","👥 Pacientes","📋 Recetas","🗓 Planificador","🛒 Compra","⬇️ Exportar"].map((item, i) => (
-                  <div key={i} className={`sidebar-item ${i === 0 ? "active" : ""}`} style={{
-                    display: "flex", alignItems: "center", gap: "10px", padding: "8px 10px", borderRadius: "6px",
-                    fontSize: "12px", color: i === 0 ? "var(--white)" : "rgba(255,255,255,0.6)", background: i === 0 ? "rgba(255,255,255,0.12)" : "none", marginBottom: "4px"
-                  }}>{item}</div>
-                ))}
-              </div>
-              <div className="mockup-main" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                <div className="mockup-stat-row" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "12px" }}>
-                  {[["28","Pacientes"],["14","Básico"],["10","Pro"],["695€","Total"]].map(([n,l], i) => (
-                    <div key={i} className="mockup-stat" style={{ background: "var(--white)", borderRadius: "10px", padding: "14px 16px", border: "1px solid var(--cream-dk)" }}>
-                      <div className="num" style={{ fontFamily: "var(--font-display)", fontSize: "26px", fontWeight: "700", color: i === 3 ? "var(--terra)" : "var(--green-700)" }}>{n}</div>
-                      <div className="lbl" style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>{l}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="mockup-chart" style={{ background: "var(--white)", borderRadius: "10px", padding: "16px", border: "1px solid var(--cream-dk)", flex: 1, display: "flex", flexDirection: "column", gap: "8px" }}>
-                  <div className="chart-title" style={{ fontSize: 12, fontWeight: 600, color: "var(--char)" }}>Usuarios activos por semana</div>
-                  <div className="chart-bars" style={{ display: "flex", alignItems: "flex-end", gap: "8px", height: "80px", paddingTop: "8px" }}>
-                    {chartBars.map((b, i) => (
-                      <div key={i} className="chart-bar" style={{ flex: 1, borderRadius: "4px 4px 0 0", height: `${b.h}%`, background: b.color, opacity: 0.7 + i * 0.04 }} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
 
       {/* PRICING */}
-      <section className="pricing-section" id="pricing">
-        <div className="container">
-          <div className="reveal" style={{ textAlign: "center" }}>
-            <div className="section-label">Precios</div>
-            <h2 className="section-title">Sin sorpresas.<br /><em>Sin letra pequeña.</em></h2>
-            <p className="section-sub" style={{ margin: "0 auto" }}>
-              14 días gratis en todos los planes. Sin tarjeta de crédito.
-            </p>
-          </div>
-          <div className="pricing-grid reveal">
-            {PLANS.map((plan, i) => (
-              <div key={i} className={`pricing-card ${plan.featured ? "featured" : ""}`}>
-                {plan.featured && <div className="popular-tag" style={{ position: "absolute", top: "-13px", left: "50%", transform: "translateX(-50%)", background: "var(--green-700)", color: "var(--white)", fontSize: "11px", fontWeight: "600", letterSpacing: "0.06em", padding: "4px 16px", borderRadius: "50px", whiteSpace: "nowrap" }}>⭐ Más popular</div>}
-                <div className="plan-name" style={{ fontSize: "13px", fontWeight: "600", color: "var(--muted)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: "12px" }}>{plan.name}</div>
-                <div className="plan-price" style={{ fontFamily: "var(--font-display)", fontSize: "52px", fontWeight: "700", color: "var(--char)", lineHeight: "1", marginBottom: "4px" }}><sup>€</sup>{plan.price}</div>
-                <div className="plan-period" style={{ fontSize: "13px", color: "var(--muted)", marginBottom: "28px" }}>por mes · IVA no incluido</div>
-                <div className="plan-divider" style={{ height: "1px", background: "var(--cream-dk)", marginBottom: "24px" }} />
-                <ul className="plan-features" style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "10px", marginBottom: "32px" }}>
-                  {plan.features.map((f, j) => (
-                    <li key={j} style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "13px", color: "var(--mid)" }}>
-                      <span style={{ color: "var(--green-600)", fontWeight: "700" }}>✓</span>{f}
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  className={`plan-btn ${plan.featured ? "plan-btn-filled" : "plan-btn-outline"}`}
-                  onClick={() => onSelectPlan(plan.name)}
-                  style={{ width: "100%", padding: "13px", borderRadius: "50px", fontSize: "14px", fontWeight: "600", fontFamily: "var(--font-body)", cursor: "pointer", border: plan.featured ? "none" : "1.5px solid var(--green-400)", background: plan.featured ? "var(--green-700)" : "transparent", color: plan.featured ? "#fff" : "var(--green-700)", transition: "all 0.2s" }}
-                >
-                  {plan.featured ? "Empezar con Pro →" : `Empezar con ${plan.name}`}
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <div className="addons-box reveal">
-            <div className="addons-title">Add-ons disponibles — compatibles con cualquier plan</div>
-            <div className="addons-grid">
-              <div className="addon-item">
-                <div className="addon-header">
-                  <div className="addon-name">🛒 Lista de la compra premium</div>
-                  <div className="addon-price">+59€/mes</div>
-                </div>
-                <div className="addon-desc">Listas 100% adaptadas al perfil nutricional, presupuesto y supermercados habituales de cada paciente. Entregable profesional al instante.</div>
-              </div>
-              <div className="addon-item">
-                <div className="addon-header">
-                  <div className="addon-name">🤖 Chatbot nutricional IA</div>
-                  <div className="addon-price">+59€/mes</div>
-                </div>
-                <div className="addon-desc">IA que adapta las dietas en tiempo real según los alimentos disponibles en casa del paciente. Respeta restricciones y preferencias automáticamente.</div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ textAlign: "center", marginTop: 40 }} className="reveal">
-            <button onClick={onRegister} className="btn-primary">Empieza gratis 14 días — sin tarjeta →</button>
-          </div>
+      <section id="pricing" style={{...lp.section,textAlign:"center"}}>
+        <div style={lp.sHead}>
+          <div style={lp.sBadge}>Precios</div>
+          <h2 style={lp.sTitle}>Inversión mínima,<br/>retorno máximo</h2>
+          <p style={lp.sSub}>Un solo paciente nuevo ya cubre el coste del mes. El primer mes es gratis.</p>
         </div>
+        <div style={lp.planGrid}>
+          {LANDING_PLANS.map(plan=>(
+            <div key={plan.id} style={lp.planCard(plan)} onMouseEnter={()=>setHoverPlan(plan.id)} onMouseLeave={()=>setHoverPlan(null)}>
+              {plan.popular && (
+                <div style={{position:"absolute",top:-14,left:"50%",transform:"translateX(-50%)",background:plan.color,color:"#fff",fontSize:11,fontWeight:700,padding:"4px 16px",borderRadius:20,whiteSpace:"nowrap"}}>
+                  ✦ Más popular
+                </div>
+              )}
+              <div style={{fontSize:28,marginBottom:10}}>{plan.icon}</div>
+              <h3 style={{fontSize:22,fontWeight:800,margin:"0 0 4px",letterSpacing:"-.025em"}}>{plan.name}</h3>
+              <p style={{fontSize:13,color:"#999",margin:"0 0 18px"}}>{plan.desc}</p>
+              <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:2}}>
+                <span style={{fontSize:18,fontWeight:500,color:"#666"}}>€</span>
+                <span style={{fontSize:52,fontWeight:900,letterSpacing:"-.05em",lineHeight:1,color:"#050505"}}>{plan.price}</span>
+                <span style={{fontSize:13,color:"#aaa"}}>/mes</span>
+              </div>
+              <div style={{fontSize:11,color:"#4caf88",fontWeight:600,marginBottom:22}}>Primer mes gratis</div>
+              <ul style={{listStyle:"none",padding:0,margin:"0 0 26px"}}>
+                {plan.features.map(f=>(
+                  <li key={f} style={{fontSize:13,color:"#444",padding:"5px 0",borderBottom:"0.5px solid #f0f0f0",display:"flex",alignItems:"flex-start"}}>
+                    <span style={{color:plan.color,marginRight:8,flexShrink:0}}>✓</span>{f}
+                  </li>
+                ))}
+              </ul>
+              <button onClick={()=>onSelectPlan?onSelectPlan(plan):onRegister&&onRegister(plan)} style={lp.planBtn(plan)}>
+                Empezar con {plan.name} →
+              </button>
+            </div>
+          ))}
+        </div>
+        <p style={{fontSize:14,color:"#aaa",marginTop:36}}>
+          ¿Ya tienes cuenta?{" "}
+          <button onClick={onLogin} style={{background:"none",border:"none",color:"#2d7a5a",fontSize:14,cursor:"pointer",textDecoration:"underline"}}>
+            Inicia sesión aquí
+          </button>
+        </p>
       </section>
 
       {/* TESTIMONIALS */}
-      <section className="testimonials-section">
-        <div className="container">
-          <div className="reveal" style={{ textAlign: "center" }}>
-            <div className="section-label">Testimonios</div>
-            <h2 className="section-title">Lo que dicen<br /><em>los que ya lo usan.</em></h2>
+      <section style={{...lp.howBg}}>
+        <div style={{maxWidth:1100,margin:"0 auto"}}>
+          <div style={{...lp.sHead,marginBottom:52}}>
+            <h2 style={lp.sTitle}>Lo que dicen los nutricionistas</h2>
           </div>
-          <div className="testimonials-grid">
-            {TESTIMONIALS.map((t, i) => (
-              <div key={i} className="testimonial-card reveal">
-                <div className="stars">★★★★★</div>
-                <p className="testimonial-text">"{t.text}"</p>
-                <div className="testimonial-author">
-                  <div className="author-avatar">{t.initials}</div>
-                  <div>
-                    <div className="author-name">{t.name}</div>
-                    <div className="author-role">{t.role}</div>
-                  </div>
-                </div>
+          <div style={lp.tGrid}>
+            {[
+              {name:"Dra. Laura Martínez",role:"Nutricionista clínica, Valencia",av:"LM",txt:"Ahorro más de 3 horas a la semana en gestión. Mis pacientes reciben mejor atención y yo tengo más tiempo para lo que importa."},
+              {name:"Pablo Sánchez",role:"Dietista-nutricionista, Madrid",av:"PS",txt:"La función de planificación de menús es increíble. Antes tardaba una hora, ahora lo hago en 10 minutos."},
+              {name:"Ana Jiménez",role:"Nutricionista deportiva, Barcelona",av:"AJ",txt:"El seguimiento de composición corporal ha mejorado muchísimo la motivación de mis pacientes. Totalmente recomendado."},
+            ].map(t=>(
+              <div key={t.name} style={lp.tCard}>
+                <div style={{width:42,height:42,borderRadius:"50%",background:"rgba(76,175,136,.14)",color:"#2d7a5a",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,marginBottom:14}}>{t.av}</div>
+                <p style={{fontSize:14,lineHeight:1.7,color:"#444",margin:"0 0 14px",fontStyle:"italic"}}>"{t.txt}"</p>
+                <div style={{fontSize:13,fontWeight:700,color:"#050505"}}>{t.name}</div>
+                <div style={{fontSize:11,color:"#aaa",marginTop:2}}>{t.role}</div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* FAQ */}
-      <section className="faq-section" id="faq">
-        <div className="container">
-          <div className="reveal" style={{ textAlign: "center" }}>
-            <div className="section-label">FAQ</div>
-            <h2 className="section-title">Preguntas frecuentes</h2>
-          </div>
-          <div className="faq-list reveal">
-            {FAQS.map((item, i) => <FaqItem key={i} {...item} />)}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA FINAL */}
-      <section className="cta-section">
-        <div className="container">
-          <div className="reveal">
-            <h2 className="section-title">Recupera 10 horas al mes<br /><em style={{ color: "var(--green-400)" }}>desde el primer día.</em></h2>
-            <p className="section-sub">Únete a los nutricionistas que ya gestionan su consulta con inteligencia.</p>
-            <button onClick={onRegister} className="btn-primary">Empieza tu prueba gratuita →</button>
-          </div>
+      {/* FINAL CTA */}
+      <section style={lp.darkCta}>
+        {["🥭","🍍","🌿","🍋"].map((fr,i)=>(
+          <span key={i} style={{position:"absolute",fontSize:[60,80,50,70][i],opacity:0.1,top:["10%","20%","auto","auto"][i],bottom:[null,null,"15%","10%"][i],left:["5%",null,"12%",null][i],right:[null,"8%",null,"5%"][i],pointerEvents:"none"}}>{fr}</span>
+        ))}
+        <div style={{position:"relative",zIndex:1}}>
+          <h2 style={{fontSize:"clamp(28px,5vw,52px)",fontWeight:800,color:"#fff",letterSpacing:"-.035em",margin:"0 0 18px"}}>Empieza hoy, sin riesgos</h2>
+          <p style={{fontSize:17,color:"rgba(255,255,255,.55)",lineHeight:1.65,margin:"0 0 36px"}}>
+            El primer mes completamente gratis. Sin tarjeta de crédito.<br/>Cancela cuando quieras.
+          </p>
+          <button onClick={onRegister} style={{background:"#4caf88",color:"#fff",border:"none",padding:"15px 40px",borderRadius:30,fontSize:17,fontWeight:700,cursor:"pointer",letterSpacing:"-.01em"}}>
+            Crear mi cuenta gratis →
+          </button>
+          <p style={{fontSize:12,color:"rgba(255,255,255,.3)",marginTop:20}}>Más de 500 nutricionistas ya confían en NutriPlanner Pro</p>
         </div>
       </section>
 
       {/* FOOTER */}
-      <footer>
-        <div className="footer-inner">
-          <div className="footer-logo">Nutri<span>Planner</span> Pro</div>
-          <div className="footer-links">
-            <a href="/privacy">Privacidad</a>
-            <a href="/terms">Términos</a>
-            <a href="/cookies">Cookies</a>
+      <footer style={lp.footer}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:18}}>🌿</span>
+            <span style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.6)"}}>NutriPlanner Pro</span>
           </div>
-          <div className="footer-copy">© 2025 NutriPlanner Pro</div>
+          <div style={{display:"flex",gap:18}}>
+            {["Funciones","Precios"].map(l=>(
+              <a key={l} href={"#"+l.toLowerCase()} style={{fontSize:12,color:"rgba(255,255,255,.35)",textDecoration:"none"}}>{l}</a>
+            ))}
+            <button onClick={onLogin} style={{fontSize:12,color:"rgba(255,255,255,.35)",background:"none",border:"none",cursor:"pointer"}}>Acceder</button>
+          </div>
+          <p style={{fontSize:11,color:"rgba(255,255,255,.2)",margin:0}}>© 2025 NutriPlanner Pro · Todos los derechos reservados</p>
         </div>
       </footer>
-    </>
+    </div>
   );
 }
 
-
-
+/* ─── AUTH PAGE (login / register) ──────────────────────────────────────── */
 function AuthPage({ initialMode = "login", preselectedPlan = null, onBack = null }) {
   const { supabase } = useAuth();
   const [mode, setMode]       = useState(initialMode);
@@ -1344,56 +927,6 @@ const Styles = () => (
     .nav-item:hover{color:#fff;background:rgba(255,255,255,.07)}
     .nav-item.active{color:#fff;background:rgba(255,255,255,.11);border-left-color:var(--terra-lt)}
     .main{flex:1;padding:40px 48px;overflow-y:auto;max-width:calc(100vw - 240px)}
-    /* ── MOBILE TOP BAR ── */
-    .mob-bar{display:none;position:fixed;top:0;left:0;right:0;height:52px;
-      background:var(--sage-dk);z-index:500;align-items:center;
-      padding:0 14px;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
-    .mob-bar-title{display:flex;align-items:center;gap:8px;flex:1}
-    .mob-bar-title h1{color:#fff;font-size:17px;font-family:'Playfair Display',serif;line-height:1;margin:0}
-    .mob-bar-title span{color:var(--terra-lt);font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
-    .mob-ham{background:none;border:none;cursor:pointer;color:#fff;font-size:22px;
-      padding:6px;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-    /* Overlay when sidebar is open */
-    .sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:499}
-    .sb-overlay.open{display:block}
-    /* ── RESPONSIVE ── */
-    @media(max-width:768px){
-      .mob-bar{display:flex}
-      /* Push content below the top bar */
-      .shell{padding-top:52px;min-height:calc(100vh - 52px)}
-      /* Sidebar becomes a slide-in drawer */
-      .sb{position:fixed;top:0;left:0;width:260px;height:100vh;z-index:600;
-        transform:translateX(-100%);transition:transform .25s ease;
-        padding-top:56px}
-      .sb.open{transform:translateX(0)}
-      /* Close btn inside sidebar on mobile */
-      .sb-close{display:flex!important}
-      /* Main takes full width */
-      .main{padding:20px 16px;max-width:100vw}
-      /* Grids */
-      .f2,.f3{grid-template-columns:1fr!important}
-      .ds{grid-template-columns:repeat(2,1fr)!important}
-      .pt-grid{grid-template-columns:1fr!important}
-      .rg{grid-template-columns:1fr!important}
-      /* Planner: allow horizontal scroll */
-      .wg{min-width:560px}
-      /* Modal full-width */
-      .mo{max-width:100vw!important;max-height:96vh;border-radius:16px 16px 0 0;
-        position:fixed;bottom:0;left:0;right:0;margin:0;padding:20px 16px}
-      .mb{align-items:flex-end;padding:0}
-      /* Cards */
-      .rc-mac{grid-template-columns:repeat(4,1fr)}
-      /* Email FAB: move right so it doesn't overlap bottom nav */
-      .email-fab{bottom:20px;left:16px}
-    }
-    @media(max-width:480px){
-      .ds{grid-template-columns:1fr!important}
-      .tab-btn{padding:8px 10px;font-size:11px}
-      .ph h2{font-size:24px}
-      .mo{padding:18px 14px}
-    }
-    /* Desktop: hide mobile elements */
-    .sb-close{display:none}
     .ph{margin-bottom:32px}.ph h2{font-size:30px;margin-bottom:5px}.ph p{color:var(--mid);font-size:14px}
     .card{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);padding:26px}
     .card-sm{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);padding:18px 22px}
@@ -4233,11 +3766,7 @@ function EmailFAB() {
 function AppInner(){
   const { user, profile } = useAuth();
   const [accountOpen, setAccountOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [view,setView]=useState("dashboard");
-
-  // Close sidebar when navigating on mobile
-  const navigate = (id) => { setView(id); setSidebarOpen(false); };
   const[recipes,setRecipes]=useState(SEED);
   const[week,setWeek]=useState(mkWeek);
   const[appProfile,setAppProfile]=useState(DEFAULT_PROFILE);
@@ -4348,35 +3877,10 @@ function AppInner(){
   const currentPlan = PLANS.find(p => p.name === profile?.plan);
 
   return(<><Styles/>
-    {/* ── Mobile top bar — always visible on small screens ── */}
-    <div className="mob-bar">
-      <button className="mob-ham" onClick={()=>setSidebarOpen(o=>!o)} aria-label="Menú">
-        {sidebarOpen ? "✕" : "☰"}
-      </button>
-      <div className="mob-bar-title">
-        <div>
-          <h1>NutriPlanner</h1>
-          <span>Pro</span>
-        </div>
-      </div>
-      <button style={{background:"none",border:"none",color:"rgba(255,255,255,.7)",
-        fontSize:20,cursor:"pointer",padding:"6px",lineHeight:1}}
-        onClick={()=>setAccountOpen(true)} aria-label="Mi cuenta">👤</button>
-    </div>
-
-    {/* ── Overlay backdrop ── */}
-    <div className={"sb-overlay"+(sidebarOpen?" open":"")} onClick={()=>setSidebarOpen(false)}/>
-
     <div className="shell">
-      <aside className={"sb"+(sidebarOpen?" open":"")}>
-        {/* Close button — only visible on mobile */}
-        <button className="sb-close"
-          onClick={()=>setSidebarOpen(false)}
-          style={{position:"absolute",top:12,right:12,background:"rgba(255,255,255,.15)",
-            border:"none",color:"#fff",borderRadius:8,width:32,height:32,cursor:"pointer",
-            fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+      <aside className="sb">
         <div className="sb-logo"><h1>Nutri<br/>Planner</h1><span>Pro</span></div>
-        <nav>{NAV.map(n=><div key={n.id} className={"nav-item"+(view===n.id?" active":"")} onClick={()=>navigate(n.id)}><span style={{fontSize:17}}>{n.icon}</span>{n.label}</div>)}</nav>
+        <nav>{NAV.map(n=><div key={n.id} className={"nav-item"+(view===n.id?" active":"")} onClick={()=>setView(n.id)}><span style={{fontSize:17}}>{n.icon}</span>{n.label}</div>)}</nav>
         {/* Account button at bottom of sidebar */}
         <div style={{marginTop:"auto",padding:"0 16px 8px"}}>
           {user?.email === ADMIN_EMAIL ? (
