@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import { createClient } from "@supabase/supabase-js";
+import LandingPage from "./LandingPage.jsx";
 
 /* ─── SUPABASE CLIENT ────────────────────────────────────────────────────── */
 const supabase = createClient(
@@ -202,301 +203,6 @@ const LANDING_FEATURES = [
   { icon:"💰", title:"Facturación integrada", desc:"Gestiona cobros, suscripciones y facturas desde la misma plataforma.", fruit:"🍋" },
   { icon:"📱", title:"Acceso desde cualquier lugar", desc:"Funciona en cualquier dispositivo. Sin instalaciones, siempre actualizado.", fruit:"🍊" },
 ];
-
-function LandingPage({ onLogin, onRegister, onSelectPlan }) {
-  const [scrollY, setScrollY] = useState(0);
-  const [hoverFeat, setHoverFeat] = useState(null);
-  const [hoverPlan, setHoverPlan] = useState(null);
-
-  useEffect(() => {
-    const onScroll = () => setScrollY(window.scrollY);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  const heroOpacity = Math.max(0, 1 - scrollY / 500);
-  const heroY = scrollY * 0.18;
-
-  const lp = { // landing styles inline
-    page: { fontFamily:"'Helvetica Neue',Helvetica,Arial,sans-serif", background:"#fafaf8", color:"#1a1a1a", overflowX:"hidden", minHeight:"100vh" },
-    nav: { position:"fixed", top:0, left:0, right:0, zIndex:100, padding:"0 5%", transition:"all .3s", background: scrollY>60?"rgba(255,255,255,0.94)":"transparent", backdropFilter: scrollY>60?"blur(20px)":"none", boxShadow: scrollY>60?"0 1px 0 rgba(0,0,0,.08)":"none" },
-    navInner: { maxWidth:1100, margin:"0 auto", height:60, display:"flex", alignItems:"center", justifyContent:"space-between" },
-    logo: { display:"flex", alignItems:"center", gap:8 },
-    logoTxt: { fontSize:16, fontWeight:600, letterSpacing:"-.02em" },
-    navLinks: { display:"flex", alignItems:"center", gap:20 },
-    navA: { fontSize:14, color:"#555", textDecoration:"none", fontWeight:400 },
-    navBtnPrimary: { fontSize:13, color:"#fff", background:"#2d7a5a", border:"none", cursor:"pointer", padding:"7px 18px", borderRadius:20, fontWeight:600 },
-    navBtnGhost: { fontSize:13, color:"#333", background:"transparent", border:"none", cursor:"pointer", padding:"7px 12px" },
-    hero: { minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:"110px 5% 60px", maxWidth:1100, margin:"0 auto", gap:60, flexWrap:"wrap" },
-    hContent: { flex:"1 1 400px", opacity:heroOpacity, transform:`translateY(${heroY}px)` },
-    badge: { display:"inline-block", background:"rgba(76,175,136,.12)", color:"#2d7a5a", fontSize:12, fontWeight:600, padding:"5px 14px", borderRadius:20, marginBottom:24, letterSpacing:".02em" },
-    h1: { fontSize:"clamp(34px,5vw,58px)", fontWeight:800, lineHeight:1.08, letterSpacing:"-.035em", margin:"0 0 20px", color:"#050505" },
-    accent: { color:"#2d7a5a" },
-    hsub: { fontSize:17, lineHeight:1.65, color:"#555", margin:"0 0 32px", maxWidth:440 },
-    ctas: { display:"flex", gap:16, alignItems:"center", flexWrap:"wrap" },
-    ctaPrimary: { background:"#2d7a5a", color:"#fff", border:"none", padding:"14px 30px", borderRadius:30, fontSize:16, fontWeight:700, cursor:"pointer", letterSpacing:"-.01em" },
-    ctaGhost: { color:"#2d7a5a", textDecoration:"none", fontSize:15, fontWeight:500 },
-    heroNote: { fontSize:12, color:"#aaa", marginTop:14 },
-    mockupWrap: { flex:"0 0 340px", opacity:heroOpacity, transform:`translateY(${heroY * 0.5}px)` },
-    mockupWin: { background:"#fff", borderRadius:18, boxShadow:"0 30px 80px rgba(0,0,0,.14)", overflow:"hidden" },
-    mockupBar: { background:"#f5f5f5", padding:"10px 14px", display:"flex", gap:6, alignItems:"center" },
-    dot: { width:12, height:12, borderRadius:"50%", display:"inline-block" },
-    mockupBody: { padding:20 },
-    proof: { background:"#f2f2ef", padding:"44px 5%", textAlign:"center" },
-    proofLbl: { fontSize:12, color:"#bbb", textTransform:"uppercase", letterSpacing:".1em", marginBottom:28 },
-    proofRow: { display:"flex", justifyContent:"center", gap:"clamp(24px,6vw,80px)", flexWrap:"wrap" },
-    pNum: { fontSize:30, fontWeight:800, letterSpacing:"-.03em", color:"#050505" },
-    pLbl: { fontSize:12, color:"#888", marginTop:3 },
-    section: { padding:"90px 5%", maxWidth:1100, margin:"0 auto" },
-    sHead: { textAlign:"center", marginBottom:60 },
-    sBadge: { display:"inline-block", background:"rgba(76,175,136,.1)", color:"#2d7a5a", fontSize:11, fontWeight:700, padding:"4px 14px", borderRadius:20, marginBottom:14, textTransform:"uppercase", letterSpacing:".07em" },
-    sTitle: { fontSize:"clamp(26px,4vw,44px)", fontWeight:800, letterSpacing:"-.035em", lineHeight:1.12, margin:"0 0 14px", color:"#050505" },
-    sSub: { fontSize:16, color:"#666", maxWidth:520, margin:"0 auto", lineHeight:1.65 },
-    grid3: { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:18 },
-    featCard: (i) => ({ background:"#fff", borderRadius:16, padding:28, transition:"transform .2s,box-shadow .2s", position:"relative", overflow:"hidden", transform:hoverFeat===i?"translateY(-5px)":"none", boxShadow:hoverFeat===i?"0 20px 50px rgba(0,0,0,.1)":"0 2px 16px rgba(0,0,0,.05)" }),
-    howBg: { background:"#f2f2ef", padding:"90px 5%" },
-    steps: { display:"flex", justifyContent:"center", gap:"clamp(28px,6vw,72px)", maxWidth:860, margin:"0 auto", flexWrap:"wrap" },
-    step: { flex:"0 0 200px", textAlign:"center" },
-    stepN: { fontSize:12, fontWeight:700, color:"#4caf88", letterSpacing:".1em", marginBottom:14 },
-    stepT: { fontSize:19, fontWeight:700, margin:"0 0 8px", letterSpacing:"-.02em" },
-    stepD: { fontSize:13, color:"#666", lineHeight:1.6, margin:0 },
-    planGrid: { display:"flex", justifyContent:"center", gap:22, flexWrap:"wrap", marginTop:16 },
-    planCard: (p) => ({ background:"#fff", borderRadius:20, padding:"32px 26px", flex:"0 0 330px", textAlign:"left", position:"relative", transition:"transform .2s,box-shadow .2s", border:p.popular?"2px solid "+p.color:"1.5px solid #e8e8e8", transform:(p.popular||hoverPlan===p.id)?"scale(1.03)":"scale(1)", boxShadow:(p.popular||hoverPlan===p.id)?"0 16px 50px rgba(0,0,0,.12)":"0 2px 16px rgba(0,0,0,.05)" }),
-    planBtn: (p) => ({ width:"100%", padding:"13px 0", borderRadius:30, fontSize:15, fontWeight:700, cursor:"pointer", letterSpacing:"-.01em", background:p.popular?p.color:"transparent", color:p.popular?"#fff":p.color, border:"2px solid "+p.color }),
-    tGrid: { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))", gap:18 },
-    tCard: { background:"#fff", borderRadius:16, padding:26 },
-    darkCta: { background:"#081510", padding:"90px 5%", textAlign:"center", position:"relative", overflow:"hidden" },
-    footer: { background:"#080808", padding:"28px 5%" },
-  };
-
-  return (
-    <div style={lp.page}>
-      <VineCanvas scrollY={scrollY} />
-
-      {/* NAV */}
-      <nav style={lp.nav}>
-        <div style={lp.navInner}>
-          <div style={lp.logo}>
-            <span style={{fontSize:22}}>🌿</span>
-            <span style={lp.logoTxt}>NutriPlanner <strong>Pro</strong></span>
-          </div>
-          <div style={lp.navLinks}>
-            <a href="#features" style={lp.navA}>Funciones</a>
-            <a href="#pricing" style={lp.navA}>Precios</a>
-            <button onClick={onLogin} style={lp.navBtnGhost}>Iniciar sesión</button>
-            <button onClick={onRegister} style={lp.navBtnPrimary}>Empezar gratis</button>
-          </div>
-        </div>
-      </nav>
-
-      {/* HERO */}
-      <section style={lp.hero}>
-        <div style={lp.hContent}>
-          <div style={lp.badge}>✦ El primer mes es gratis · Sin permanencia</div>
-          <h1 style={lp.h1}>
-            Tu consulta de nutrición,<br/>
-            <span style={lp.accent}>más inteligente</span>
-          </h1>
-          <p style={lp.hsub}>
-            La plataforma todo-en-uno para nutricionistas que quieren dedicar
-            más tiempo a sus pacientes y menos a la gestión.
-          </p>
-          <div style={lp.ctas}>
-            <button onClick={onRegister} style={lp.ctaPrimary}>Empieza gratis hoy →</button>
-            <a href="#features" style={lp.ctaGhost}>Ver cómo funciona</a>
-          </div>
-          <p style={lp.heroNote}>Sin tarjeta de crédito · Cancela cuando quieras</p>
-        </div>
-
-        <div style={lp.mockupWrap}>
-          <div style={lp.mockupWin}>
-            <div style={lp.mockupBar}>
-              <span style={{...lp.dot,background:"#ff5f57"}}/>
-              <span style={{...lp.dot,background:"#febc2e"}}/>
-              <span style={{...lp.dot,background:"#28c840"}}/>
-            </div>
-            <div style={lp.mockupBody}>
-              <div style={{display:"flex",gap:24,marginBottom:16}}>
-                {[["48","Pacientes activos"],["98%","Adherencia media"]].map(([n,l])=>(
-                  <div key={l}>
-                    <div style={{fontSize:26,fontWeight:800,letterSpacing:"-.03em",color: l==="Adherencia media"?"#4caf88":"#050505"}}>{n}</div>
-                    <div style={{fontSize:11,color:"#aaa",marginTop:2}}>{l}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{display:"flex",gap:6,alignItems:"flex-end",height:90,marginBottom:14}}>
-                {[60,80,45,90,70].map((h,i)=>(
-                  <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                    <div style={{width:"100%",height:h,borderRadius:4,background:i===3?"#4caf88":"#e8f5e9"}}/>
-                    <div style={{fontSize:9,color:"#ccc"}}>{"LMMJV"[i]}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{fontSize:11,color:"#555",background:"#f0f9f5",padding:"6px 10px",borderRadius:8,display:"inline-block"}}>
-                🥗 Dieta mediterránea · 1.800 kcal
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* PROOF */}
-      <section style={lp.proof}>
-        <p style={lp.proofLbl}>Confían en nosotros</p>
-        <div style={lp.proofRow}>
-          {[["500+","Nutricionistas"],["24.000+","Pacientes gestionados"],["98%","Satisfacción"],["4,9★","Valoración media"]].map(([n,l])=>(
-            <div key={l} style={{textAlign:"center"}}>
-              <div style={lp.pNum}>{n}</div>
-              <div style={lp.pLbl}>{l}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* FEATURES */}
-      <section id="features" style={lp.section}>
-        <div style={lp.sHead}>
-          <div style={lp.sBadge}>Funciones</div>
-          <h2 style={lp.sTitle}>Todo lo que necesitas,<br/>en un solo lugar</h2>
-          <p style={lp.sSub}>Diseñado por y para nutricionistas. Cada función existe para ahorrarte tiempo.</p>
-        </div>
-        <div style={lp.grid3}>
-          {LANDING_FEATURES.map((f,i)=>(
-            <div key={f.title} style={lp.featCard(i)} onMouseEnter={()=>setHoverFeat(i)} onMouseLeave={()=>setHoverFeat(null)}>
-              <div style={{position:"absolute",top:14,right:14,fontSize:28,opacity:0.15}}>{f.fruit}</div>
-              <div style={{fontSize:28,marginBottom:10}}>{f.icon}</div>
-              <h3 style={{fontSize:17,fontWeight:700,margin:"0 0 8px",letterSpacing:"-.01em"}}>{f.title}</h3>
-              <p style={{fontSize:13,color:"#666",lineHeight:1.65,margin:0}}>{f.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* HOW IT WORKS */}
-      <section style={lp.howBg}>
-        <div style={{...lp.sHead,marginBottom:52}}>
-          <div style={lp.sBadge}>Así de simple</div>
-          <h2 style={lp.sTitle}>Empieza en 3 minutos</h2>
-        </div>
-        <div style={lp.steps}>
-          {[
-            {n:"01",t:"Crea tu cuenta",d:"Regístrate gratis. Sin tarjeta, sin complicaciones."},
-            {n:"02",t:"Añade tus pacientes",d:"Importa o crea fichas en segundos con toda su información."},
-            {n:"03",t:"Planifica y crece",d:"Gestiona menús, seguimiento y facturación desde un solo panel."},
-          ].map(st=>(
-            <div key={st.n} style={lp.step}>
-              <div style={lp.stepN}>{st.n}</div>
-              <h3 style={lp.stepT}>{st.t}</h3>
-              <p style={lp.stepD}>{st.d}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* PRICING */}
-      <section id="pricing" style={{...lp.section,textAlign:"center"}}>
-        <div style={lp.sHead}>
-          <div style={lp.sBadge}>Precios</div>
-          <h2 style={lp.sTitle}>Inversión mínima,<br/>retorno máximo</h2>
-          <p style={lp.sSub}>Un solo paciente nuevo ya cubre el coste del mes. El primer mes es gratis.</p>
-        </div>
-        <div style={lp.planGrid}>
-          {LANDING_PLANS.map(plan=>(
-            <div key={plan.id} style={lp.planCard(plan)} onMouseEnter={()=>setHoverPlan(plan.id)} onMouseLeave={()=>setHoverPlan(null)}>
-              {plan.popular && (
-                <div style={{position:"absolute",top:-14,left:"50%",transform:"translateX(-50%)",background:plan.color,color:"#fff",fontSize:11,fontWeight:700,padding:"4px 16px",borderRadius:20,whiteSpace:"nowrap"}}>
-                  ✦ Más popular
-                </div>
-              )}
-              <div style={{fontSize:28,marginBottom:10}}>{plan.icon}</div>
-              <h3 style={{fontSize:22,fontWeight:800,margin:"0 0 4px",letterSpacing:"-.025em"}}>{plan.name}</h3>
-              <p style={{fontSize:13,color:"#999",margin:"0 0 18px"}}>{plan.desc}</p>
-              <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:2}}>
-                <span style={{fontSize:18,fontWeight:500,color:"#666"}}>€</span>
-                <span style={{fontSize:52,fontWeight:900,letterSpacing:"-.05em",lineHeight:1,color:"#050505"}}>{plan.price}</span>
-                <span style={{fontSize:13,color:"#aaa"}}>/mes</span>
-              </div>
-              <div style={{fontSize:11,color:"#4caf88",fontWeight:600,marginBottom:22}}>Primer mes gratis</div>
-              <ul style={{listStyle:"none",padding:0,margin:"0 0 26px"}}>
-                {plan.features.map(f=>(
-                  <li key={f} style={{fontSize:13,color:"#444",padding:"5px 0",borderBottom:"0.5px solid #f0f0f0",display:"flex",alignItems:"flex-start"}}>
-                    <span style={{color:plan.color,marginRight:8,flexShrink:0}}>✓</span>{f}
-                  </li>
-                ))}
-              </ul>
-              <button onClick={()=>onSelectPlan?onSelectPlan(plan):onRegister&&onRegister(plan)} style={lp.planBtn(plan)}>
-                Empezar con {plan.name} →
-              </button>
-            </div>
-          ))}
-        </div>
-        <p style={{fontSize:14,color:"#aaa",marginTop:36}}>
-          ¿Ya tienes cuenta?{" "}
-          <button onClick={onLogin} style={{background:"none",border:"none",color:"#2d7a5a",fontSize:14,cursor:"pointer",textDecoration:"underline"}}>
-            Inicia sesión aquí
-          </button>
-        </p>
-      </section>
-
-      {/* TESTIMONIALS */}
-      <section style={{...lp.howBg}}>
-        <div style={{maxWidth:1100,margin:"0 auto"}}>
-          <div style={{...lp.sHead,marginBottom:52}}>
-            <h2 style={lp.sTitle}>Lo que dicen los nutricionistas</h2>
-          </div>
-          <div style={lp.tGrid}>
-            {[
-              {name:"Dra. Laura Martínez",role:"Nutricionista clínica, Valencia",av:"LM",txt:"Ahorro más de 3 horas a la semana en gestión. Mis pacientes reciben mejor atención y yo tengo más tiempo para lo que importa."},
-              {name:"Pablo Sánchez",role:"Dietista-nutricionista, Madrid",av:"PS",txt:"La función de planificación de menús es increíble. Antes tardaba una hora, ahora lo hago en 10 minutos."},
-              {name:"Ana Jiménez",role:"Nutricionista deportiva, Barcelona",av:"AJ",txt:"El seguimiento de composición corporal ha mejorado muchísimo la motivación de mis pacientes. Totalmente recomendado."},
-            ].map(t=>(
-              <div key={t.name} style={lp.tCard}>
-                <div style={{width:42,height:42,borderRadius:"50%",background:"rgba(76,175,136,.14)",color:"#2d7a5a",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,marginBottom:14}}>{t.av}</div>
-                <p style={{fontSize:14,lineHeight:1.7,color:"#444",margin:"0 0 14px",fontStyle:"italic"}}>"{t.txt}"</p>
-                <div style={{fontSize:13,fontWeight:700,color:"#050505"}}>{t.name}</div>
-                <div style={{fontSize:11,color:"#aaa",marginTop:2}}>{t.role}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* FINAL CTA */}
-      <section style={lp.darkCta}>
-        {["🥭","🍍","🌿","🍋"].map((fr,i)=>(
-          <span key={i} style={{position:"absolute",fontSize:[60,80,50,70][i],opacity:0.1,top:["10%","20%","auto","auto"][i],bottom:[null,null,"15%","10%"][i],left:["5%",null,"12%",null][i],right:[null,"8%",null,"5%"][i],pointerEvents:"none"}}>{fr}</span>
-        ))}
-        <div style={{position:"relative",zIndex:1}}>
-          <h2 style={{fontSize:"clamp(28px,5vw,52px)",fontWeight:800,color:"#fff",letterSpacing:"-.035em",margin:"0 0 18px"}}>Empieza hoy, sin riesgos</h2>
-          <p style={{fontSize:17,color:"rgba(255,255,255,.55)",lineHeight:1.65,margin:"0 0 36px"}}>
-            El primer mes completamente gratis. Sin tarjeta de crédito.<br/>Cancela cuando quieras.
-          </p>
-          <button onClick={onRegister} style={{background:"#4caf88",color:"#fff",border:"none",padding:"15px 40px",borderRadius:30,fontSize:17,fontWeight:700,cursor:"pointer",letterSpacing:"-.01em"}}>
-            Crear mi cuenta gratis →
-          </button>
-          <p style={{fontSize:12,color:"rgba(255,255,255,.3)",marginTop:20}}>Más de 500 nutricionistas ya confían en NutriPlanner Pro</p>
-        </div>
-      </section>
-
-      {/* FOOTER */}
-      <footer style={lp.footer}>
-        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:18}}>🌿</span>
-            <span style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.6)"}}>NutriPlanner Pro</span>
-          </div>
-          <div style={{display:"flex",gap:18}}>
-            {["Funciones","Precios"].map(l=>(
-              <a key={l} href={"#"+l.toLowerCase()} style={{fontSize:12,color:"rgba(255,255,255,.35)",textDecoration:"none"}}>{l}</a>
-            ))}
-            <button onClick={onLogin} style={{fontSize:12,color:"rgba(255,255,255,.35)",background:"none",border:"none",cursor:"pointer"}}>Acceder</button>
-          </div>
-          <p style={{fontSize:11,color:"rgba(255,255,255,.2)",margin:0}}>© 2025 NutriPlanner Pro · Todos los derechos reservados</p>
-        </div>
-      </footer>
-    </div>
-  );
-}
 
 /* ─── AUTH PAGE (login / register) ──────────────────────────────────────── */
 function AuthPage({ initialMode = "login", preselectedPlan = null, onBack = null }) {
@@ -927,6 +633,56 @@ const Styles = () => (
     .nav-item:hover{color:#fff;background:rgba(255,255,255,.07)}
     .nav-item.active{color:#fff;background:rgba(255,255,255,.11);border-left-color:var(--terra-lt)}
     .main{flex:1;padding:40px 48px;overflow-y:auto;max-width:calc(100vw - 240px)}
+    /* ── MOBILE TOP BAR ── */
+    .mob-bar{display:none;position:fixed;top:0;left:0;right:0;height:52px;
+      background:var(--sage-dk);z-index:500;align-items:center;
+      padding:0 14px;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+    .mob-bar-title{display:flex;align-items:center;gap:8px;flex:1}
+    .mob-bar-title h1{color:#fff;font-size:17px;font-family:'Playfair Display',serif;line-height:1;margin:0}
+    .mob-bar-title span{color:var(--terra-lt);font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
+    .mob-ham{background:none;border:none;cursor:pointer;color:#fff;font-size:22px;
+      padding:6px;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    /* Overlay when sidebar is open */
+    .sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:499}
+    .sb-overlay.open{display:block}
+    /* ── RESPONSIVE ── */
+    @media(max-width:768px){
+      .mob-bar{display:flex}
+      /* Push content below the top bar */
+      .shell{padding-top:52px;min-height:calc(100vh - 52px)}
+      /* Sidebar becomes a slide-in drawer */
+      .sb{position:fixed;top:0;left:0;width:260px;height:100vh;z-index:600;
+        transform:translateX(-100%);transition:transform .25s ease;
+        padding-top:56px}
+      .sb.open{transform:translateX(0)}
+      /* Close btn inside sidebar on mobile */
+      .sb-close{display:flex!important}
+      /* Main takes full width */
+      .main{padding:20px 16px;max-width:100vw}
+      /* Grids */
+      .f2,.f3{grid-template-columns:1fr!important}
+      .ds{grid-template-columns:repeat(2,1fr)!important}
+      .pt-grid{grid-template-columns:1fr!important}
+      .rg{grid-template-columns:1fr!important}
+      /* Planner: allow horizontal scroll */
+      .wg{min-width:560px}
+      /* Modal full-width */
+      .mo{max-width:100vw!important;max-height:96vh;border-radius:16px 16px 0 0;
+        position:fixed;bottom:0;left:0;right:0;margin:0;padding:20px 16px}
+      .mb{align-items:flex-end;padding:0}
+      /* Cards */
+      .rc-mac{grid-template-columns:repeat(4,1fr)}
+      /* Email FAB: move right so it doesn't overlap bottom nav */
+      .email-fab{bottom:20px;left:16px}
+    }
+    @media(max-width:480px){
+      .ds{grid-template-columns:1fr!important}
+      .tab-btn{padding:8px 10px;font-size:11px}
+      .ph h2{font-size:24px}
+      .mo{padding:18px 14px}
+    }
+    /* Desktop: hide mobile elements */
+    .sb-close{display:none}
     .ph{margin-bottom:32px}.ph h2{font-size:30px;margin-bottom:5px}.ph p{color:var(--mid);font-size:14px}
     .card{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);padding:26px}
     .card-sm{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);padding:18px 22px}
@@ -3766,7 +3522,11 @@ function EmailFAB() {
 function AppInner(){
   const { user, profile } = useAuth();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [view,setView]=useState("dashboard");
+
+  // Close sidebar when navigating on mobile
+  const navigate = (id) => { setView(id); setSidebarOpen(false); };
   const[recipes,setRecipes]=useState(SEED);
   const[week,setWeek]=useState(mkWeek);
   const[appProfile,setAppProfile]=useState(DEFAULT_PROFILE);
@@ -3877,10 +3637,35 @@ function AppInner(){
   const currentPlan = PLANS.find(p => p.name === profile?.plan);
 
   return(<><Styles/>
+    {/* ── Mobile top bar — always visible on small screens ── */}
+    <div className="mob-bar">
+      <button className="mob-ham" onClick={()=>setSidebarOpen(o=>!o)} aria-label="Menú">
+        {sidebarOpen ? "✕" : "☰"}
+      </button>
+      <div className="mob-bar-title">
+        <div>
+          <h1>NutriPlanner</h1>
+          <span>Pro</span>
+        </div>
+      </div>
+      <button style={{background:"none",border:"none",color:"rgba(255,255,255,.7)",
+        fontSize:20,cursor:"pointer",padding:"6px",lineHeight:1}}
+        onClick={()=>setAccountOpen(true)} aria-label="Mi cuenta">👤</button>
+    </div>
+
+    {/* ── Overlay backdrop ── */}
+    <div className={"sb-overlay"+(sidebarOpen?" open":"")} onClick={()=>setSidebarOpen(false)}/>
+
     <div className="shell">
-      <aside className="sb">
+      <aside className={"sb"+(sidebarOpen?" open":"")}>
+        {/* Close button — only visible on mobile */}
+        <button className="sb-close"
+          onClick={()=>setSidebarOpen(false)}
+          style={{position:"absolute",top:12,right:12,background:"rgba(255,255,255,.15)",
+            border:"none",color:"#fff",borderRadius:8,width:32,height:32,cursor:"pointer",
+            fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         <div className="sb-logo"><h1>Nutri<br/>Planner</h1><span>Pro</span></div>
-        <nav>{NAV.map(n=><div key={n.id} className={"nav-item"+(view===n.id?" active":"")} onClick={()=>setView(n.id)}><span style={{fontSize:17}}>{n.icon}</span>{n.label}</div>)}</nav>
+        <nav>{NAV.map(n=><div key={n.id} className={"nav-item"+(view===n.id?" active":"")} onClick={()=>navigate(n.id)}><span style={{fontSize:17}}>{n.icon}</span>{n.label}</div>)}</nav>
         {/* Account button at bottom of sidebar */}
         <div style={{marginTop:"auto",padding:"0 16px 8px"}}>
           {user?.email === ADMIN_EMAIL ? (
