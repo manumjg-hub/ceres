@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import { createClient } from "@supabase/supabase-js";
-import LandingPage from "./LandingPage.jsx";
+import LandingPage from "./LandingPage";
 
 /* ─── SUPABASE CLIENT ────────────────────────────────────────────────────── */
 const supabase = createClient(
@@ -116,95 +116,10 @@ async function openCustomerPortal(userId) {
   else throw new Error(data.error || "Error al abrir portal");
 }
 
-/* ─── VINE CANVAS ────────────────────────────────────────────────────────── */
-function VineCanvas({ scrollY }) {
-  const canvasRef = useRef(null);
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const W = canvas.width, H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-    const progress = Math.min(scrollY / 3000, 1);
-    const totalLen = H * 0.85;
-    const drawn = totalLen * progress;
-    ctx.save();
-    ctx.strokeStyle = "#4caf88";
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    const stemX = W / 2;
-    let startY = 60;
-    ctx.moveTo(stemX, startY);
-    for (let i = 0; i < drawn; i += 2) {
-      ctx.lineTo(stemX + Math.sin(i * 0.04) * 18, startY + i);
-    }
-    ctx.stroke();
-    ctx.restore();
-    const leafCount = Math.floor(progress * 24);
-    for (let li = 0; li < leafCount; li++) {
-      const t = li / 24;
-      const vy = 60 + t * totalLen;
-      const vx = stemX + Math.sin(li * 0.04 * 24) * 18;
-      const side = li % 2 === 0 ? 1 : -1;
-      const age = Math.min((progress - t) * 8, 1);
-      ctx.save();
-      ctx.translate(vx + side * 22 * age, vy);
-      ctx.rotate(side * 0.5);
-      ctx.globalAlpha = age;
-      ctx.fillStyle = li % 3 === 0 ? "#2d7a5a" : "#4caf88";
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 10 * age, 18 * age, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,0.4)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, -14 * age);
-      ctx.lineTo(0, 14 * age);
-      ctx.stroke();
-      ctx.restore();
-    }
-    const fruits = ["🥭","🍍","🌿","🍋","🥥","🍊","🫐","🍇"];
-    const fruitCount = Math.floor(progress * fruits.length);
-    for (let fi = 0; fi < fruitCount; fi++) {
-      const t = (fi + 0.5) / fruits.length;
-      const vy = 60 + t * totalLen;
-      const vx = stemX + Math.sin(t * 24 * 0.04) * 18;
-      const side = fi % 2 === 0 ? 1 : -1;
-      const age = Math.min((progress - t) * 12, 1);
-      ctx.save();
-      ctx.translate(vx + side * 52 * age, vy - 10);
-      ctx.globalAlpha = age;
-      ctx.font = `${22 * age}px serif`;
-      ctx.textAlign = "center";
-      ctx.fillText(fruits[fi], 0, 0);
-      ctx.restore();
-    }
-  }, [scrollY]);
-  return (
-    <canvas ref={canvasRef} width={120} height={3200}
-      style={{position:"fixed",right:"4%",top:0,pointerEvents:"none",zIndex:10,opacity:0.8}}
-    />
-  );
-}
 
-/* ─── LANDING PAGE ───────────────────────────────────────────────────────── */
-const LANDING_PLANS = [
-  { id:"basico", name:"Básico", price:29, color:"#4caf88", accent:"#2d7a5a", icon:"🌱", desc:"Empieza a gestionar tu consulta",
-    features:["Pacientes ilimitados","Planificador semanal de menús","Lista de compra automática","PDF menú + recetas","Cuestionario personalizable","Historial de peso y seguimiento"] },
-  { id:"pro", name:"Pro", price:59, color:"#3a7ab5", accent:"#1a4f80", icon:"⭐", popular:true, desc:"La elección de los profesionales",
-    features:["Todo lo del plan Básico","Composición corporal completa","Editor de dieta personalizado","Plantillas reutilizables ilimitadas","Dashboard de facturación","Suscripciones de pacientes","Acceso prioritario a novedades"] },
-];
-const LANDING_FEATURES = [
-  { icon:"👥", title:"Gestión de pacientes", desc:"Todos tus pacientes organizados. Historial completo, evolución y documentos en un solo lugar.", fruit:"🥭" },
-  { icon:"📋", title:"Planificación de menús", desc:"Crea menús semanales en minutos con el editor visual. Genera PDFs listos para imprimir al momento.", fruit:"🍍" },
-  { icon:"📊", title:"Seguimiento nutricional", desc:"Controla el progreso con gráficas detalladas de peso, medidas y composición corporal.", fruit:"🍌" },
-  { icon:"🛒", title:"Lista de compra automática", desc:"Genera la lista de compra del menú con un clic. Ahorra tiempo a ti y a tus pacientes.", fruit:"🥥" },
-  { icon:"💰", title:"Facturación integrada", desc:"Gestiona cobros, suscripciones y facturas desde la misma plataforma.", fruit:"🍋" },
-  { icon:"📱", title:"Acceso desde cualquier lugar", desc:"Funciona en cualquier dispositivo. Sin instalaciones, siempre actualizado.", fruit:"🍊" },
-];
 
-/* ─── AUTH PAGE (login / register) ──────────────────────────────────────── */
+
+
 function AuthPage({ initialMode = "login", preselectedPlan = null, onBack = null }) {
   const { supabase } = useAuth();
   const [mode, setMode]       = useState(initialMode);
